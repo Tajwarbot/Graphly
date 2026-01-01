@@ -4,7 +4,8 @@ Graphly is a powerful, standalone React application for creating, analyzing, and
 
 It features an **AI-powered scanner** that turns images of data tables into editable graphs instantly using Google Gemini.
 
-\<\!-- Upload a screenshot to your repo's public folder and name it screenshot.png if you want an image here \--\>
+
+<img width="1910" height="931" alt="screenshot" src="https://github.com/user-attachments/assets/bcb10a3b-05b9-4185-8562-7a0ce81456ae" />
 
 ## **✨ Features**
 
