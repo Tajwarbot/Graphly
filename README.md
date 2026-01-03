@@ -31,7 +31,7 @@ Follow these instructions to run the project locally.
 ### **Installation**
 
 1. **Clone the repository:**  
-   git clone \[https://github.com/Tajwarbot/Graphly.git\](https://github.com/Tajwarbot/Graphly.git)  
+   git clone https://github.com/Tajwarbot/Graphly.git  
    cd Graphly
 
 2. **Install dependencies:**  
