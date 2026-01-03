@@ -27,6 +27,7 @@ Follow these instructions to run the project locally.
 
 * [Node.js](https://nodejs.org/) (Version 16 or higher recommended)  
 * A free [Google Gemini API Key](https://aistudio.google.com/)
+* (To get a Gemini API key, go to Google AI Studio (studio.google.com), sign in with your Google account, and click "Create API key" (or find it in the Dashboard) to generate a new key, optionally linking it to a Google Cloud project for organization.)
 
 ### **Installation**
 
@@ -44,7 +45,6 @@ Follow these instructions to run the project locally.
      const GEMINI\_API\_KEY \= "YOUR\_GEMINI\_API\_KEY\_HERE"; 
 
    * Replace "YOUR\_GEMINI\_API\_KEY\_HERE" with your actual API key string.
-   * (To get a Gemini API key, go to Google AI Studio (studio.google.com), sign in with your Google account, and click "Create API key" (or find it in the Dashboard) to generate a new key, optionally linking it to a Google Cloud project for organization.)
 4. **Run the development server:**  
    npm run dev
 
