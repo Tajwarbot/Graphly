@@ -10,7 +10,7 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 import {
     LineChart, Line, AreaChart, Area, XAxis, YAxis,
     CartesianGrid, Tooltip, Legend, ResponsiveContainer, ScatterChart,
-    Scatter, ComposedChart, ReferenceLine, ReferenceDot, Label, ErrorBar
+    Scatter, ComposedChart, ReferenceLine, ReferenceDot, Label, ErrorBar, LabelList
 } from 'recharts';
 import { FlickeringGrid } from './components/ui/flickering-grid';
 import { LiquidGlassCard } from './components/ui/liquid-glass-card';
@@ -337,6 +337,31 @@ export default function App() {
         document.title = "Graphly";
     }, []);
 
+    // Force mobile version and lock browser zoom on non-desktop devices
+    useEffect(() => {
+        const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent) ||
+            (navigator.maxTouchPoints > 0 && navigator.platform === 'MacIntel');
+
+        if (isMobile) {
+            // Prevent browser zoom on mobile
+            document.body.style.touchAction = 'pan-x pan-y';
+
+            // Prevent pinch zoom outside graph area
+            const preventZoom = (e) => {
+                if (e.touches.length > 1) {
+                    e.preventDefault();
+                }
+            };
+
+            document.addEventListener('touchmove', preventZoom, { passive: false });
+
+            return () => {
+                document.removeEventListener('touchmove', preventZoom);
+                document.body.style.touchAction = '';
+            };
+        }
+    }, []);
+
     const [savedGraphs, setSavedGraphs] = useState([]);
     const [image, setImage] = useState(null);
     const [scanStatus, setScanStatus] = useState("idle");
@@ -478,6 +503,13 @@ export default function App() {
             printFrame.style.border = '0';
             document.body.appendChild(printFrame);
 
+            // Detect orientation based on screen aspect ratio
+            const isLandscape = window.innerWidth > window.innerHeight;
+            const pageSize = isLandscape ? 'landscape' : 'portrait';
+            // A4 dimensions in mm
+            const a4Width = isLandscape ? 297 : 210;
+            const a4Height = isLandscape ? 210 : 297;
+
             const frameDoc = printFrame.contentWindow.document;
             frameDoc.open();
             frameDoc.write(`
@@ -485,8 +517,8 @@ export default function App() {
             <head>
                 <style>
                     @page { 
-                        size: landscape; 
-                        margin: 0; 
+                        size: A4 ${pageSize}; 
+                        margin: 10mm; 
                     }
                     body { 
                         margin: 0; 
@@ -500,8 +532,8 @@ export default function App() {
                         background: white;
                     }
                     img {
-                        max-width: 95vw;
-                        max-height: 90vh;
+                        max-width: calc(${a4Width}mm - 20mm);
+                        max-height: calc(${a4Height}mm - 20mm);
                         object-fit: contain;
                     }
                 </style>
@@ -574,7 +606,7 @@ export default function App() {
                 config: { type: 'scatter', xKey: 'x', yKey: 'y', showTrendline: false, trendlineType: 'linear', trendlineColor: '#ef4444' }
             }],
             // Default Labels to X and Y
-            globalConfig: { showGrid: true, enableZoom: true, xAxisLabel: "X", yAxisLabel: "Y", aspectRatio: "auto" },
+            globalConfig: { showGrid: true, enableZoom: true, xAxisLabel: "X", yAxisLabel: "Y", aspectRatio: "auto", showLabels: false },
             annotations: [],
             createdAt: new Date().toISOString()
         };
@@ -615,7 +647,7 @@ export default function App() {
                 title: "Imported CSV Graph",
                 datasets: [newDataset],
                 // Default Labels to X and Y
-                globalConfig: { showGrid: true, enableZoom: true, xAxisLabel: "X", yAxisLabel: "Y", aspectRatio: "auto" },
+                globalConfig: { showGrid: true, enableZoom: true, xAxisLabel: "X", yAxisLabel: "Y", aspectRatio: "auto", showLabels: false },
                 annotations: [],
                 createdAt: new Date().toISOString()
             };
@@ -731,7 +763,8 @@ export default function App() {
                         enableZoom: true,
                         xAxisLabel: "X",
                         yAxisLabel: "Y",
-                        aspectRatio: "auto"
+                        aspectRatio: "auto",
+                        showLabels: false
                     },
                     annotations: [],
                     createdAt: new Date().toISOString()
@@ -885,6 +918,33 @@ export default function App() {
         return d;
 
     }, [zoomDomain, globalBounds, currentGraph?.globalConfig?.aspectRatio, containerSize]);
+
+    // Calculate ticks with optional manual interval
+    const xTicks = useMemo(() => {
+        const interval = currentGraph?.globalConfig?.xGridInterval;
+        if (interval && interval > 0) {
+            const ticks = [];
+            const start = Math.ceil(currentDomain.x[0] / interval) * interval;
+            for (let t = start; t <= currentDomain.x[1]; t += interval) {
+                ticks.push(t);
+            }
+            return ticks;
+        }
+        return calculateNiceTicks(currentDomain.x[0], currentDomain.x[1]);
+    }, [currentDomain, currentGraph?.globalConfig?.xGridInterval]);
+
+    const yTicks = useMemo(() => {
+        const interval = currentGraph?.globalConfig?.yGridInterval;
+        if (interval && interval > 0) {
+            const ticks = [];
+            const start = Math.ceil(currentDomain.y[0] / interval) * interval;
+            for (let t = start; t <= currentDomain.y[1]; t += interval) {
+                ticks.push(t);
+            }
+            return ticks;
+        }
+        return calculateNiceTicks(currentDomain.y[0], currentDomain.y[1]);
+    }, [currentDomain, currentGraph?.globalConfig?.yGridInterval]);
 
     // Derived state for Sidebar (contains stats but NO filtering by visibility)
     const allDatasets = useMemo(() => {
@@ -1150,9 +1210,6 @@ export default function App() {
             }
         }
     };
-
-    const xTicks = calculateNiceTicks(currentDomain?.x[0], currentDomain?.x[1]);
-    const yTicks = calculateNiceTicks(currentDomain?.y[0], currentDomain?.y[1]);
 
     return (
         <div className="min-h-screen bg-[#F8FAFC] font-sans text-slate-800 selection:bg-indigo-100 selection:text-indigo-900 overflow-hidden">
@@ -1897,9 +1954,10 @@ export default function App() {
 
                                 <ResponsiveContainer width="100%" height="100%">
                                     <ComposedChart
-                                        margin={{ top: 30, right: 10, bottom: 20, left: 0 }}
+                                        margin={{ top: 50, right: 10, bottom: 20, left: 10 }}
                                         onDoubleClick={handleChartDoubleClick}
                                         onClick={handleChartClick}
+                                        style={{ outline: 'none' }}
                                     >
                                         {currentGraph.globalConfig?.showGrid !== false && (
                                             <CartesianGrid strokeDasharray="" stroke="#e2e8f0" />
@@ -1991,7 +2049,21 @@ export default function App() {
                                                             isAnimationActive={false}
                                                             type="monotone"
                                                             dot={{ r: 4, strokeWidth: 0, fill: ds.color, onClick: (p, e) => handlePointClick(p, e, ds), cursor: 'pointer' }}
-                                                        />
+                                                        >
+                                                            {currentGraph.globalConfig?.showLabels && (
+                                                                <LabelList dataKey="y" position="top" content={(props) => {
+                                                                    const { x, y, value, payload, index } = props;
+                                                                    const point = payload || (ds.points && ds.points[index]);
+                                                                    if (!point) return null;
+                                                                    const displayX = point.x !== undefined ? point.x : (point.payload?.x ?? index);
+                                                                    return (
+                                                                        <text x={x} y={y - 12} fill={ds.color} fontSize={10} textAnchor="middle" fontWeight="bold">
+                                                                            ({formatNumber(displayX)}, {formatNumber(value)})
+                                                                        </text>
+                                                                    );
+                                                                }} />
+                                                            )}
+                                                        </Area>
                                                     </>
                                                 )}
                                                 {ds.config.type === 'line' && (
@@ -2005,7 +2077,21 @@ export default function App() {
                                                         type="monotone"
                                                         activeDot={{ r: 6, onClick: (e, p) => handlePointClick(p, e, ds) }}
                                                         dot={{ r: 4, stroke: 'white', strokeWidth: 2, fill: ds.color, onClick: (p, e) => handlePointClick(p, e, ds), cursor: 'pointer' }}
-                                                    />
+                                                    >
+                                                        {currentGraph.globalConfig?.showLabels && (
+                                                            <LabelList dataKey="y" position="top" content={(props) => {
+                                                                const { x, y, value, payload, index } = props;
+                                                                const point = payload || (ds.points && ds.points[index]);
+                                                                if (!point) return null;
+                                                                const displayX = point.x !== undefined ? point.x : (point.payload?.x ?? index);
+                                                                return (
+                                                                    <text x={x} y={y - 12} fill={ds.color} fontSize={10} textAnchor="middle" fontWeight="bold">
+                                                                        ({formatNumber(displayX)}, {formatNumber(value)})
+                                                                    </text>
+                                                                );
+                                                            }} />
+                                                        )}
+                                                    </Line>
                                                 )}
                                                 {ds.config.type === 'scatter' && (
                                                     <Scatter
@@ -2017,7 +2103,22 @@ export default function App() {
                                                         isAnimationActive={false}
                                                         onClick={(p, i, e) => handlePointClick(p, e, ds)}
                                                         cursor="pointer"
-                                                    />
+                                                        activeDot={false}
+                                                    >
+                                                        {currentGraph.globalConfig?.showLabels && (
+                                                            <LabelList dataKey="y" position="top" content={(props) => {
+                                                                const { x, y, value, payload, index } = props;
+                                                                const point = payload || (ds.points && ds.points[index]);
+                                                                if (!point) return null;
+                                                                const displayX = point.x !== undefined ? point.x : (point.payload?.x ?? index);
+                                                                return (
+                                                                    <text x={x} y={y - 12} fill={ds.color} fontSize={10} textAnchor="middle" fontWeight="bold">
+                                                                        ({formatNumber(displayX)}, {formatNumber(value)})
+                                                                    </text>
+                                                                );
+                                                            }} />
+                                                        )}
+                                                    </Scatter>
                                                 )}
                                             </React.Fragment>
                                         ))}
@@ -2067,6 +2168,23 @@ export default function App() {
 
                         {showSettings ? (
                             <div className="flex-1 p-4 space-y-6 overflow-y-auto">
+                                <div className="bg-indigo-50/50 p-4 rounded-xl border border-indigo-100">
+                                    <label className="flex items-center justify-between cursor-pointer">
+                                        <div className="flex items-center gap-2">
+                                            <div className="w-8 h-8 bg-indigo-100 rounded-lg flex items-center justify-center text-indigo-600">
+                                                <Eye size={16} />
+                                            </div>
+                                            <span className="text-sm font-bold text-slate-700">Annotate All Points</span>
+                                        </div>
+                                        <input
+                                            type="checkbox"
+                                            checked={currentGraph.globalConfig?.showLabels === true}
+                                            onChange={e => setCurrentGraph({ ...currentGraph, globalConfig: { ...currentGraph.globalConfig, showLabels: e.target.checked } })}
+                                            className="w-5 h-5 rounded text-indigo-600 focus:ring-indigo-500 border-slate-300 transition-all cursor-pointer"
+                                        />
+                                    </label>
+                                </div>
+
                                 <div>
                                     <label className="text-xs font-bold text-slate-400 uppercase mb-2 block">Graph Title</label>
                                     <input
@@ -2121,6 +2239,45 @@ export default function App() {
                                         <span className="text-sm text-slate-700">Show Grid Lines</span>
                                     </label>
                                 </div>
+
+                                {currentGraph.globalConfig?.showGrid !== false && (
+                                    <div className="space-y-3 mt-3 pl-4 border-l-2 border-indigo-100">
+                                        <div>
+                                            <label className="text-xs text-slate-500 block mb-1">X Grid Interval</label>
+                                            <input
+                                                type="number"
+                                                step="any"
+                                                placeholder="Auto"
+                                                className="w-full p-2 text-sm bg-slate-50 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-100"
+                                                value={currentGraph.globalConfig?.xGridInterval || ''}
+                                                onChange={e => setCurrentGraph({
+                                                    ...currentGraph,
+                                                    globalConfig: {
+                                                        ...currentGraph.globalConfig,
+                                                        xGridInterval: e.target.value ? parseFloat(e.target.value) : null
+                                                    }
+                                                })}
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="text-xs text-slate-500 block mb-1">Y Grid Interval</label>
+                                            <input
+                                                type="number"
+                                                step="any"
+                                                placeholder="Auto"
+                                                className="w-full p-2 text-sm bg-slate-50 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-100"
+                                                value={currentGraph.globalConfig?.yGridInterval || ''}
+                                                onChange={e => setCurrentGraph({
+                                                    ...currentGraph,
+                                                    globalConfig: {
+                                                        ...currentGraph.globalConfig,
+                                                        yGridInterval: e.target.value ? parseFloat(e.target.value) : null
+                                                    }
+                                                })}
+                                            />
+                                        </div>
+                                    </div>
+                                )}
 
                                 <div className="pt-4 border-t border-slate-100 pb-20 lg:pb-0">
                                     <label className="text-xs font-bold text-slate-400 uppercase mb-3 block flex items-center gap-1"><StickyNote size={12} /> Annotations</label>
