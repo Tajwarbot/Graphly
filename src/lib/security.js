@@ -24,6 +24,9 @@ const SECURITY_CONFIG = {
         BUCKET_REFILL_RATE_MS: 12000,   // Refill one token every 12 seconds
         STORAGE_KEY: 'graphly_rate_limit'
     },
+    
+    // API Key storage
+    API_KEY_STORAGE_KEY: 'graphly_api_key',
 
     // Input validation limits
     INPUT_LIMITS: {
@@ -421,23 +424,43 @@ export { InputValidator, SECURITY_CONFIG };
  * @returns {string|null} API key or null if not configured
  */
 export function getGeminiApiKey() {
+    // 1. Check Local Storage (User provided key)
+    try {
+        const localKey = localStorage.getItem('graphly_api_key');
+        if (localKey) return localKey;
+    } catch (e) {
+        console.warn('Failed to access localStorage for API key');
+    }
+
+    // 2. Check Environment Variable (Developer/Deployment key)
     const key = import.meta.env.VITE_GEMINI_API_KEY;
 
     if (!key || key === 'your_api_key_here' || key === 'YOUR_GEMINI_API_KEY_HERE') {
-        console.warn(
-            '[Security] Gemini API key not configured. ' +
-            'Set VITE_GEMINI_API_KEY in your .env file.'
-        );
         return null;
     }
 
     // Basic validation - Gemini keys start with 'AI' and are ~39 chars
     if (key.length < 30) {
-        console.warn('[Security] Gemini API key appears to be invalid (too short)');
-        return null;
+        return null; // Invalid environment key
     }
 
     return key;
+}
+
+/**
+ * Save API key to localStorage
+ * @param {string} key 
+ */
+export function setGeminiApiKey(key) {
+    if (!key) return;
+    localStorage.setItem('graphly_api_key', key);
+}
+
+/**
+ * Remove API key from localStorage
+ */
+export function removeGeminiApiKey() {
+    localStorage.removeItem('graphly_api_key');
 }
 
 /**

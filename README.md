@@ -2,7 +2,7 @@
 
 Graphly is a powerful, standalone React application for creating, analyzing, and exporting scientific graphs. It runs entirely in the browser using `localStorage` for persistence, meaning no backend or database configuration is required.
 
-It features an **AI-powered scanner** that turns images of data tables into editable graphs instantly using Google Gemini 2.5.
+It features an **AI-powered scanner** that turns images of data tables into editable graphs instantly using Google Gemini 2.5 Flash. Users can bring their own free API key for secure, private usage.
 
 ![Graphly Demo](https://github.com/user-attachments/assets/cabd606e-fb35-4c74-823c-3c3ba2c42cbc)
 
@@ -40,7 +40,7 @@ Follow these instructions to run the project locally.
    npm install
    ```
 
-3. **Configure Environment:**
+3. **Configure Environment (Optional for Dev):**
    * Create a `.env` file in the root directory (copy from `.env.example`):
      ```bash
      cp .env.example .env
@@ -49,8 +49,7 @@ Follow these instructions to run the project locally.
      ```env
      VITE_GEMINI_API_KEY=your_actual_api_key_here
      ```
-
-   > **Security Note:** The API key is used client-side. For local development, this is fine. For production, consider using a proxy server to hide the key, although rate limiting is implemented in the app.
+   * **Note:** This is only for local convenience. The app now supports entering your key directly in the UI, which is saved securely in your browser's Local Storage.
 
 4. **Run the development server:**
    ```bash
@@ -69,6 +68,14 @@ npm run build
 ```
 
 This will create a `dist` folder containing your optimized website.
+
+### ⚠️ IMPORTANT: Deployment Security
+
+**DO NOT** set `VITE_GEMINI_API_KEY` in your hosting provider's environment variables (e.g., Netlify/Vercel dashboard).
+
+- If you set this variable in production, your API key will be embedded in the public code and visible to anyone.
+- **Leave it empty.** The app is designed to prompt users to enter their own key (BYOK - Bring Your Own Key), which is stored safely in their browser.
+- This ensures you incur no costs and leak no secrets.
 
 ---
 

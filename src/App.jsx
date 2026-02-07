@@ -12,8 +12,10 @@ import {
     CartesianGrid, Tooltip, Legend, ResponsiveContainer, ScatterChart,
     Scatter, ComposedChart, ReferenceLine, ReferenceDot, Label, ErrorBar, LabelList
 } from 'recharts';
+import { Key } from 'lucide-react';
 import { FlickeringGrid } from './components/ui/flickering-grid';
 import { LiquidGlassCard } from './components/ui/liquid-glass-card';
+import { ApiKeyModal } from './components/ApiKeyModal';
 
 // SECURITY: Import security utilities for rate limiting, validation, and API key handling
 import {
@@ -22,7 +24,9 @@ import {
     getGeminiApiKey,
     isApiKeyConfigured,
     createRateLimitError,
-    createValidationError
+    createValidationError,
+    setGeminiApiKey,
+    removeGeminiApiKey
 } from './lib/security';
 
 // --- CONFIGURATION ---
@@ -365,6 +369,7 @@ export default function App() {
     const [savedGraphs, setSavedGraphs] = useState([]);
     const [image, setImage] = useState(null);
     const [scanStatus, setScanStatus] = useState("idle");
+    const [showApiKeyModal, setShowApiKeyModal] = useState(false);
     const fileInputRef = useRef(null);
     const csvFileInputRef = useRef(null);
 
@@ -663,12 +668,12 @@ export default function App() {
         if (!image) return;
 
         // SECURITY: Check if API key is configured
-        const apiKey = getGeminiApiKey();
-        if (!apiKey) {
-            setScanStatus("error");
-            alert("Gemini API key is not configured. Please set VITE_GEMINI_API_KEY in your .env file.");
+        if (!isApiKeyConfigured()) {
+            setShowApiKeyModal(true);
             return;
         }
+
+        const apiKey = getGeminiApiKey();
 
         // SECURITY: Rate limiting - prevent API abuse
         const rateLimitResult = rateLimiter.tryConsume();
@@ -1639,6 +1644,13 @@ export default function App() {
                                                 <Button onClick={() => { setIsImporting(false); setView('scan'); }} variant="glowSecondary" size="lg" icon={Camera}>
                                                     Scan Image
                                                 </Button>
+                                                <button
+                                                    onClick={() => setShowApiKeyModal(true)}
+                                                    className="p-3.5 bg-white border border-indigo-100 rounded-xl text-indigo-600 hover:bg-indigo-50 hover:border-indigo-200 transition-all shadow-sm"
+                                                    title="API Key Settings"
+                                                >
+                                                    <Key size={20} />
+                                                </button>
                                             </div>
 
                                             {/* Trust Indicators */}
@@ -1777,11 +1789,17 @@ export default function App() {
             {view === 'scan' && (
                 <main className="max-w-4xl mx-auto px-6 h-[calc(100vh-64px)] overflow-hidden flex flex-col justify-center">
                     {/* Header with animation */}
-                    <div className="text-center mb-10 animate-fade-in-up">
+                    <div className="text-center mb-10 animate-fade-in-up relative">
                         <div className="inline-flex items-center justify-center w-16 h-16 bg-gradient-to-br from-indigo-100 to-violet-100 rounded-2xl mb-4">
                             <Camera className="text-indigo-600" size={28} />
                         </div>
                         <h1 className="text-3xl font-bold text-slate-900 mb-2">Import Data</h1>
+                        <button
+                            onClick={() => setShowApiKeyModal(true)}
+                            className="absolute top-0 right-0 p-2 text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors flex items-center gap-2 text-sm font-medium"
+                        >
+                            <Key size={16} /> <span className="hidden sm:inline">API Key</span>
+                        </button>
                         <p className="text-slate-500">
                             {isImporting ? "Add data to your existing graph." : "Create a new graph from external data."}
                         </p>
@@ -2512,6 +2530,15 @@ export default function App() {
                     </div>
                 </div>
             )}
+            {/* API Key Modal Component */}
+            <ApiKeyModal
+                isOpen={showApiKeyModal}
+                onClose={() => setShowApiKeyModal(false)}
+                onSave={() => {
+                    // Start scan if we were waiting for it? 
+                    // optional: could auto-trigger scan if image exists
+                }}
+            />
         </div>
     );
 }
