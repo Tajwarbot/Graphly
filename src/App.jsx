@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import {
     Camera, BarChart2, FileText, Check, AlertCircle, RefreshCw,
     ChevronRight, Zap, Settings, Save, Download, Edit2, Plus, Trash2,
@@ -8,9 +8,9 @@ import {
 } from 'lucide-react';
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import {
-    LineChart, Line, AreaChart, Area, XAxis, YAxis,
-    CartesianGrid, Tooltip, Legend, ResponsiveContainer, ScatterChart,
-    Scatter, ComposedChart, ReferenceLine, ReferenceDot, Label, ErrorBar, LabelList
+    Line, Area, XAxis, YAxis,
+    CartesianGrid, ResponsiveContainer,
+    Scatter, ComposedChart, ReferenceLine, ReferenceDot, Label, LabelList
 } from 'recharts';
 import { Key } from 'lucide-react';
 import { FlickeringGrid } from './components/ui/flickering-grid';
@@ -22,11 +22,7 @@ import {
     rateLimiter,
     InputValidator,
     getGeminiApiKey,
-    isApiKeyConfigured,
-    createRateLimitError,
-    createValidationError,
-    setGeminiApiKey,
-    removeGeminiApiKey
+    isApiKeyConfigured
 } from './lib/security';
 
 // --- CONFIGURATION ---
@@ -272,7 +268,7 @@ const generateFunctionPoints = (equation, xMin = -10, xMax = 10, resolution = 20
             }
         }
         return points;
-    } catch (e) {
+    } catch {
         return [];
     }
 };
@@ -687,28 +683,60 @@ export default function App() {
         try {
             // SECURITY: Use API key from environment variable
             const genAI = new GoogleGenerativeAI(apiKey);
-            const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash-preview-09-2025" });
+            // Using gemini-2.5-flash — current GA flash model (1.5 retired Apr 2025)
+            const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
             const prompt = `
-        Analyze this datasheet/image. Extract tabular data.
+        Analyze this datasheet/image. Extract tabular data accurately.
         If there are multiple tables or distinct sections, create separate datasets.
         
-        Return JSON:
+        CRITICAL: Return ONLY a valid JSON object. No markdown formatting, no backticks, no explanatory text.
+        Structure:
         {
           "title": "Document Title",
           "datasets": [
             {
-              "name": "Table 1 (e.g. Forward Bias)",
-              "data": [{"Voltage": 0.1, "Current": 0.01}, ...]
+              "name": "Dataset Name",
+              "data": [{"Column1": value, "Column2": value}, ...]
             }
           ]
         }
-        Strip units. Return ONLY pure JSON. No comments.
+        Strip all units (e.g. "5V" -> 5). Return ONLY pure JSON.
       `;
 
             const result = await model.generateContent([prompt, { inlineData: { data: image.base64, mimeType: image.file.type } }]);
+
+            if (!result.response) {
+                throw new Error("No response from AI model. This might be due to safety filters or connection issues.");
+            }
+
             let text = result.response.text();
-            text = text.replace(/```json/g, '').replace(/```/g, '').replace(/\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '').trim();
-            const parsed = JSON.parse(text);
+
+            // Robust JSON Extraction: Find the search for { and } to extract the JSON part
+            const firstBrace = text.indexOf('{');
+            const lastBrace = text.lastIndexOf('}');
+
+            if (firstBrace === -1 || lastBrace === -1) {
+                console.error("No JSON object found in response:", text);
+                throw new Error("The AI response did not contain a valid data structure. Please try again with a clearer image.");
+            }
+
+            text = text.substring(firstBrace, lastBrace + 1);
+
+            // Further sanitization to remove any tricky bits (e.g. trailing commas if present)
+            let parsed;
+            try {
+                parsed = JSON.parse(text);
+            } catch (e) {
+                console.error("JSON Parse Error:", e, "Original text:", text);
+                // Attempt a second pass if simple quotes or trailing commas are an issue
+                try {
+                    // Very basic cleanup for common AI JSON mistakes
+                    const cleanedText = text.replace(/,\s*([}\]])/g, '$1');
+                    parsed = JSON.parse(cleanedText);
+                } catch {
+                    throw new Error("Failed to parse AI response. The data structure was malformed.");
+                }
+            }
 
             // SECURITY: Validate and sanitize title from API response
             const titleValidation = InputValidator.validateGraphTitle(parsed.title || "Untitled Graph");
@@ -784,6 +812,7 @@ export default function App() {
         } catch (e) {
             console.error(e);
             setScanStatus("error");
+            alert(`Generation Error: ${e.message}`);
         }
     };
 
@@ -2346,7 +2375,7 @@ export default function App() {
                                     <button onClick={() => addDataset('data')} className="text-xs font-medium text-indigo-600 hover:bg-indigo-50 px-3 py-1.5 rounded-md transition-colors flex items-center gap-1"><Plus size={14} /> Table</button>
                                 </div>
                                 <div className="flex-1 overflow-y-auto p-2 space-y-2 pb-20 lg:pb-2">
-                                    {allDatasets.map((ds, idx) => (
+                                    {allDatasets.map((ds) => (
                                         <div key={ds.id} className="border border-slate-200 rounded-xl overflow-hidden bg-white shadow-sm transition-all hover:shadow-md">
                                             <div className="flex items-center gap-3 p-3 bg-slate-50/80 border-b border-slate-100 cursor-pointer" onClick={() => setExpandedDatasetId(expandedDatasetId === ds.id ? null : ds.id)}>
                                                 <button onClick={(e) => { e.stopPropagation(); updateDataset(ds.id, { visible: !ds.visible }); }} className={`p-1.5 rounded-md transition-colors ${ds.visible ? 'text-slate-600 hover:bg-slate-200' : 'text-slate-300 hover:bg-slate-100'}`}>

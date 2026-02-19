@@ -11,7 +11,6 @@ export function ApiKeyModal({ isOpen, onClose, onSave }) {
 
     useEffect(() => {
         if (isOpen) {
-            const currentKey = getGeminiApiKey();
             // Don't show the full key if it's from env, but user can overwrite local
             // If local key exists, show it (masked)
             const localKey = localStorage.getItem('graphly_api_key');
