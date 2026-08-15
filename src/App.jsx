@@ -683,8 +683,8 @@ export default function App() {
         try {
             // SECURITY: Use API key from environment variable
             const genAI = new GoogleGenerativeAI(apiKey);
-            // Using gemini-2.5-flash — current GA flash model (1.5 retired Apr 2025)
-            const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+            // Using gemini-3.5-flash — current GA flash model (1.5 retired Apr 2025)
+            const model = genAI.getGenerativeModel({ model: "gemini-3.5-flash" });
             const prompt = `
         Analyze this datasheet/image. Extract tabular data accurately.
         If there are multiple tables or distinct sections, create separate datasets.
