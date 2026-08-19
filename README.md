@@ -6,7 +6,7 @@ It features an **AI-powered scanner** that turns images of data tables into edit
 
 ![Graphly Demo](https://github.com/user-attachments/assets/cabd606e-fb35-4c74-823c-3c3ba2c42cbc)
 
-## ** Features**
+## **Features**
 
 ### **Core Functionality**
 * **🤖 AI Data Scanning:** Upload a photo of a datasheet or handwritten table, and Graphly extracts the data automatically.
@@ -19,7 +19,7 @@ It features an **AI-powered scanner** that turns images of data tables into edit
 
 ---
 
-## ** Getting Started**
+## **Getting Started**
 
 Follow these instructions to run the project locally.
 
