@@ -2,11 +2,11 @@
 
 Graphly is a powerful, standalone React application for creating, analyzing, and exporting scientific graphs. It runs entirely in the browser using `localStorage` for persistence, meaning no backend or database configuration is required.
 
-It features an **AI-powered scanner** that turns images of data tables into editable graphs instantly using Google Gemini 2.5 Flash. Users can bring their own free API key for secure, private usage.
+It features an **AI-powered scanner** that turns images of data tables into editable graphs instantly using Google Gemini 3.5 Flash. Users can bring their own free API key for secure, private usage.
 
 ![Graphly Demo](https://github.com/user-attachments/assets/cabd606e-fb35-4c74-823c-3c3ba2c42cbc)
 
-## **✨ Features**
+## ** Features**
 
 ### **Core Functionality**
 * **🤖 AI Data Scanning:** Upload a photo of a datasheet or handwritten table, and Graphly extracts the data automatically.
@@ -19,7 +19,7 @@ It features an **AI-powered scanner** that turns images of data tables into edit
 
 ---
 
-## **🚀 Getting Started**
+## ** Getting Started**
 
 Follow these instructions to run the project locally.
 
