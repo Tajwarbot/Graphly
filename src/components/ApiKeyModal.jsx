@@ -11,8 +11,6 @@ export function ApiKeyModal({ isOpen, onClose, onSave }) {
 
     useEffect(() => {
         if (isOpen) {
-            // Don't show the full key if it's from env, but user can overwrite local
-            // If local key exists, show it (masked)
             const localKey = localStorage.getItem('graphly_api_key');
             if (localKey) {
                 setApiKey(localKey);
@@ -40,11 +38,10 @@ export function ApiKeyModal({ isOpen, onClose, onSave }) {
         setSuccess('API key saved successfully!');
         setError('');
 
-        // Brief delay before closing to show success message
         setTimeout(() => {
             onSave();
             onClose();
-        }, 1000);
+        }, 800);
     };
 
     const handleRemove = () => {
@@ -54,47 +51,46 @@ export function ApiKeyModal({ isOpen, onClose, onSave }) {
             setSuccess('API key removed.');
             setTimeout(() => {
                 setSuccess('');
-            }, 2000);
+            }, 1500);
         }
     };
 
     if (!isOpen) return null;
 
     return (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-in fade-in duration-200">
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/60">
             <div
-                className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden animate-in zoom-in-95 duration-200 border border-indigo-100"
+                className="bg-white border-2 border-black w-full max-w-lg"
                 onClick={e => e.stopPropagation()}
             >
                 {/* Header */}
-                <div className="px-6 py-4 bg-slate-50 border-b border-slate-100 flex justify-between items-center">
-                    <div className="flex items-center gap-2 text-indigo-900">
-                        <div className="bg-indigo-100 p-2 rounded-lg">
-                            <Key size={20} className="text-indigo-600" />
-                        </div>
-                        <h2 className="text-lg font-bold">API Key Required</h2>
+                <div className="px-5 py-3 bg-black text-white border-b-2 border-black flex justify-between items-center">
+                    <div className="flex items-center gap-2">
+                        <Key size={18} className="text-white" />
+                        <h2 className="text-base font-bold tracking-tight">API Key Configuration</h2>
                     </div>
                     <button
                         onClick={onClose}
-                        className="p-2 hover:bg-slate-200 rounded-full text-slate-400 hover:text-slate-600 transition-colors"
+                        className="p-1 hover:bg-white hover:text-black transition-none text-white border border-transparent hover:border-white"
+                        aria-label="Close"
                     >
-                        <X size={20} />
+                        <X size={18} />
                     </button>
                 </div>
 
                 {/* Body */}
-                <div className="p-6 space-y-6">
-                    <div className="bg-indigo-50/50 border border-indigo-100 rounded-xl p-4 text-sm text-indigo-900 leading-relaxed">
+                <div className="p-6 space-y-5">
+                    <div className="border border-black p-4 text-sm text-black leading-relaxed">
                         <p>
-                            To process images and extract data, Graphly uses Google's Gemini AI.
-                            You need to provide your own free API key to continue.
+                            To process images and extract data tables, Graphly connects directly to Google Gemini AI from your browser.
+                            Enter your API key below.
                         </p>
                     </div>
 
                     {/* Input Field */}
                     <div className="space-y-2">
-                        <label className="text-sm font-bold text-slate-700 block ml-1">
-                            Enter your Gemini API Key
+                        <label className="text-xs font-bold text-black block">
+                            Gemini API Key
                         </label>
                         <div className="relative">
                             <input
@@ -106,16 +102,16 @@ export function ApiKeyModal({ isOpen, onClose, onSave }) {
                                 }}
                                 placeholder="AIzaSy..."
                                 className={`
-                                    w-full pl-4 pr-12 py-3 bg-white border rounded-xl outline-none transition-all
-                                    focus:ring-2 focus:ring-indigo-100 
-                                    ${error ? 'border-red-300 focus:border-red-400' : 'border-slate-200 focus:border-indigo-400'}
-                                    text-slate-700 font-mono text-sm
+                                    w-full pl-3 pr-10 py-2.5 bg-white border-2 border-black outline-none
+                                    text-black font-mono text-sm placeholder:text-neutral-400
+                                    ${error ? 'border-red-600' : 'border-black'}
                                 `}
                             />
                             <button
                                 type="button"
                                 onClick={() => setShowKey(!showKey)}
-                                className="absolute right-3 top-1/2 -translate-y-1/2 p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
+                                className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 text-black hover:bg-black hover:text-white transition-none"
+                                aria-label={showKey ? "Hide key" : "Show key"}
                             >
                                 {showKey ? <EyeOff size={16} /> : <Eye size={16} />}
                             </button>
@@ -123,13 +119,13 @@ export function ApiKeyModal({ isOpen, onClose, onSave }) {
 
                         {/* Error / Success Messages */}
                         {error && (
-                            <div className="flex items-center gap-2 text-red-500 text-sm mt-2 ml-1 animate-in slide-in-from-left-2">
+                            <div className="flex items-center gap-2 text-red-600 text-xs font-mono mt-2">
                                 <AlertCircle size={14} />
                                 <span>{error}</span>
                             </div>
                         )}
                         {success && (
-                            <div className="flex items-center gap-2 text-green-600 text-sm mt-2 ml-1 animate-in slide-in-from-left-2">
+                            <div className="flex items-center gap-2 text-black font-mono text-xs mt-2 bg-neutral-100 p-1.5 border border-black">
                                 <Check size={14} />
                                 <span>{success}</span>
                             </div>
@@ -137,36 +133,33 @@ export function ApiKeyModal({ isOpen, onClose, onSave }) {
                     </div>
 
                     {/* Tutorial Accordion */}
-                    <div className="border border-slate-200 rounded-xl overflow-hidden">
+                    <div className="border border-black">
                         <button
                             onClick={() => setShowTutorial(!showTutorial)}
-                            className="w-full flex items-center justify-between p-4 bg-slate-50 hover:bg-slate-100 transition-colors text-left group"
+                            className="w-full flex items-center justify-between p-3 bg-white hover:bg-black hover:text-white transition-none text-left"
                         >
-                            <span className="text-sm font-semibold text-slate-700 flex items-center gap-2">
-                                <HelpCircle size={16} className="text-indigo-500" />
+                            <span className="text-xs font-bold flex items-center gap-2">
+                                <HelpCircle size={14} />
                                 How to get a free API Key
                             </span>
-                            {showTutorial ?
-                                <ChevronDown size={16} className="text-slate-400" /> :
-                                <ChevronRight size={16} className="text-slate-400 group-hover:translate-x-0.5 transition-transform" />
-                            }
+                            {showTutorial ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
                         </button>
 
                         {showTutorial && (
-                            <div className="p-4 bg-white border-t border-slate-200 text-sm space-y-3 animate-in slide-in-from-top-2">
-                                <ol className="list-decimal list-inside space-y-2 text-slate-600 ml-1">
+                            <div className="p-4 bg-white border-t border-black text-xs space-y-2.5">
+                                <ol className="list-decimal list-inside space-y-1.5 text-black">
                                     <li>
-                                        Go to <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" className="text-indigo-600 hover:underline inline-flex items-center gap-0.5 font-medium">
+                                        Visit <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" className="underline font-bold inline-flex items-center gap-0.5">
                                             Google AI Studio <ExternalLink size={10} />
                                         </a>
                                     </li>
-                                    <li>Click on <strong>"Create API key"</strong>.</li>
-                                    <li>Select a project (or create a new one).</li>
-                                    <li>Copy the generated key (starts with <code>AIzaSy...</code>).</li>
+                                    <li>Click <strong>"Create API key"</strong>.</li>
+                                    <li>Select or create a project.</li>
+                                    <li>Copy the generated key (starts with <code className="font-mono bg-neutral-100 px-1 border border-black">AIzaSy...</code>).</li>
                                     <li>Paste it in the field above.</li>
                                 </ol>
-                                <p className="text-xs text-slate-400 pt-2 border-t border-slate-100">
-                                    Note: Graphly stores your key locally in your browser. It is never sent to our servers, only directly to Google's API.
+                                <p className="text-[11px] text-neutral-600 pt-2 border-t border-black">
+                                    Your key is stored only in local storage on your machine.
                                 </p>
                             </div>
                         )}
@@ -174,29 +167,29 @@ export function ApiKeyModal({ isOpen, onClose, onSave }) {
                 </div>
 
                 {/* Footer */}
-                <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex justify-between items-center gap-3">
+                <div className="px-6 py-4 bg-white border-t-2 border-black flex justify-between items-center gap-3">
                     {apiKey && localStorage.getItem('graphly_api_key') ? (
                         <button
                             onClick={handleRemove}
-                            className="px-4 py-2.5 text-red-500 hover:text-red-700 hover:bg-red-50 rounded-xl text-sm font-medium transition-colors flex items-center gap-2"
+                            className="px-3 py-2 border border-black text-black bg-white hover:bg-black hover:text-white text-xs font-bold transition-none flex items-center gap-1.5"
                         >
-                            <Trash2 size={16} /> Remove Key
+                            <Trash2 size={14} /> Remove Key
                         </button>
-                    ) : <div></div>}
+                    ) : <div />}
 
-                    <div className="flex gap-3">
+                    <div className="flex gap-2">
                         <button
                             onClick={onClose}
-                            className="px-4 py-2.5 text-slate-600 hover:text-slate-800 hover:bg-slate-200 rounded-xl text-sm font-medium transition-colors"
+                            className="px-4 py-2 border border-black text-black bg-white hover:bg-black hover:text-white text-xs font-bold transition-none"
                         >
                             Cancel
                         </button>
                         <button
                             onClick={handleSave}
                             disabled={!apiKey.trim()}
-                            className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-sm font-medium shadow-sm hover:shadow-md transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                            className="px-5 py-2 border-2 border-black bg-black text-white hover:bg-white hover:text-black text-xs font-bold transition-none disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1.5"
                         >
-                            <Save size={16} /> Save Key
+                            <Save size={14} /> Save Key
                         </button>
                     </div>
                 </div>

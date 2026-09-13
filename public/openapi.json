@@ -1,0 +1,134 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Graphly Plot Generator API",
+    "description": "Enables external AI assistants (ChatGPT via GPT Actions and Claude via Web Tools) to generate interactive 2D curves, 3D quadric surfaces, and tabular scatter plots in Graphly.",
+    "version": "1.0.0"
+  },
+  "servers": [
+    {
+      "url": "https://graphly.netlify.app"
+    }
+  ],
+  "paths": {
+    "/api/plot": {
+      "post": {
+        "operationId": "generatePlotUrl",
+        "summary": "Generate a live interactive Graphly plot link",
+        "description": "Accepts mathematical formulas or datasets and returns a direct interactive URL opening Graphly with that visualization rendered.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "mode": {
+                    "type": "string",
+                    "enum": ["function", "3d", "data"],
+                    "description": "Visual mode: 'function' for 2D curve, '3d' for 3D surface (hyperboloid, saddle, ripple), 'data' for tabular scatter plot."
+                  },
+                  "expression": {
+                    "type": "string",
+                    "description": "Mathematical formula for 2D curve (e.g. 'sin(x)', 'x^2 - 4') or 3D surface (e.g. '(x^2 - y^2)/4', 'sin(x)*cos(y)')."
+                  },
+                  "name": {
+                    "type": "string",
+                    "description": "Optional title or label for the visualization."
+                  },
+                  "rows": {
+                    "type": "array",
+                    "description": "Array of data point objects with numerical x and y values for Data Mode.",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "x": { "type": "number" },
+                        "y": { "type": "number" }
+                      },
+                      "required": ["x", "y"]
+                    }
+                  }
+                },
+                "required": ["mode"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Live Graphly plot link generated successfully.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": { "type": "boolean" },
+                    "url": {
+                      "type": "string",
+                      "format": "uri",
+                      "description": "Direct clickable link that launches Graphly with the graph rendered."
+                    },
+                    "previewUrl": {
+                      "type": "string",
+                      "format": "uri",
+                      "description": "Human-readable URL query preview."
+                    },
+                    "message": { "type": "string" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "operationId": "getPlotUrl",
+        "summary": "Quick URL generator via query parameters",
+        "description": "Fast GET endpoint for generating plot links directly from query params.",
+        "parameters": [
+          {
+            "name": "mode",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": ["function", "3d", "data"]
+            }
+          },
+          {
+            "name": "expression",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "URL generated successfully.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": { "type": "boolean" },
+                    "url": { "type": "string" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

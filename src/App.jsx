@@ -4,7 +4,7 @@ import {
     ChevronRight, Zap, Settings, Save, Download, Edit2, Plus, Trash2,
     LogOut, Layout, TrendingUp, Grid, Type, Palette, ZoomIn, Home,
     MoreVertical, Share2, ChevronLeft, Calculator, Move, MousePointer2,
-    ArrowRightLeft, Eye, EyeOff, Table, Activity, X, FilePlus, FileSpreadsheet, StickyNote, Menu, Sigma, Info, RotateCcw, Minus
+    ArrowRightLeft, Eye, EyeOff, Table, Activity, X, FilePlus, FileSpreadsheet, StickyNote, Menu, Sigma, Info, RotateCcw, Minus, Box, Sliders
 } from 'lucide-react';
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import {
@@ -13,9 +13,12 @@ import {
     Scatter, ComposedChart, ReferenceLine, ReferenceDot, Label, LabelList
 } from 'recharts';
 import { Key } from 'lucide-react';
-import { FlickeringGrid } from './components/ui/flickering-grid';
-import { LiquidGlassCard } from './components/ui/liquid-glass-card';
 import { ApiKeyModal } from './components/ApiKeyModal';
+import { FunctionGraph } from './components/FunctionGraph';
+import { ThreeDGraph } from './components/ThreeDGraph';
+import { AIChatbox } from './components/AIChatbox';
+import { Logo, LogoIcon } from './components/Logo';
+import { MathBackground } from './components/MathBackground';
 
 // SECURITY: Import security utilities for rate limiting, validation, and API key handling
 import {
@@ -26,252 +29,41 @@ import {
 } from './lib/security';
 
 // --- CONFIGURATION ---
-// SECURITY: API key now loaded from environment variables (see .env file)
-// Never hardcode API keys in source code
 const LOCAL_STORAGE_KEY = "graphly_local_data";
 
 // --- MATH & UTILS ---
 
 const THEMES = [
-    { name: "Ocean", color: "#0ea5e9" },
-    { name: "Sunset", color: "#f97316" },
-    { name: "Forest", color: "#10b981" },
-    { name: "Berry", color: "#d946ef" },
-    { name: "Midnight", color: "#6366f1" },
-    { name: "Cherry", color: "#ef4444" },
-    { name: "Teal", color: "#14b8a6" },
-    { name: "Noir", color: "#1e293b" }
+    { name: "Cobalt Blue", color: "#2563EB", bg: "#EFF6FF", border: "#BFDBFE" },
+    { name: "Crimson Red", color: "#DC2626", bg: "#FEF2F2", border: "#FECACA" },
+    { name: "Emerald Green", color: "#059669", bg: "#ECFDF5", border: "#A7F3D0" },
+    { name: "Vivid Amber", color: "#D97706", bg: "#FFFBEB", border: "#FDE68A" },
+    { name: "Deep Violet", color: "#7C3AED", bg: "#F5F3FF", border: "#DDD6FE" },
+    { name: "Teal Cyan", color: "#0891B2", bg: "#ECFEFF", border: "#A5F3FC" },
+    { name: "Hot Rose", color: "#E11D48", bg: "#FFF1F2", border: "#FECDD3" },
+    { name: "Midnight Black", color: "#18181B", bg: "#F4F4F5", border: "#E4E4E7" }
 ];
 
-const calculateNiceTicks = (min, max, maxTicks = 8) => {
-    if (min === max || min === 'auto' || max === 'auto') return [];
-    const range = max - min;
-    if (range <= 0) return [min];
-    const roughStep = range / (maxTicks - 1);
-    const exponent = Math.floor(Math.log10(roughStep));
-    const fraction = roughStep / Math.pow(10, exponent);
-    let niceFraction;
-    if (fraction < 1.5) niceFraction = 1;
-    else if (fraction < 3) niceFraction = 2;
-    else if (fraction < 7) niceFraction = 5;
-    else niceFraction = 10;
-    const step = niceFraction * Math.pow(10, exponent);
-    const start = Math.ceil(min / step) * step;
-    const end = Math.floor(max / step) * step;
-    const ticks = [];
-    const epsilon = step / 1000;
-    for (let t = start; t <= end + epsilon; t += step) {
-        ticks.push(t);
-    }
-    return ticks;
-};
+const TRENDLINE_THEMES = [
+    { name: "Crimson", color: "#DC2626" },
+    { name: "Cobalt", color: "#2563EB" },
+    { name: "Emerald", color: "#059669" },
+    { name: "Amber", color: "#D97706" },
+    { name: "Violet", color: "#7C3AED" },
+    { name: "Dark Slate", color: "#18181B" }
+];
+import { calculateNiceTicks, formatNumber, getRegressionParams, generateTrendlineData, calculateStats, generateFunctionPoints, compileMathFunction } from './lib/mathEngine.js';
 
-const formatNumber = (num) => {
-    if (typeof num !== 'number') return num;
-    if (num === 0) return 0;
-    const abs = Math.abs(num);
-    if (abs >= 10000 || abs < 0.001) {
-        return num.toExponential(2);
-    }
-    return parseFloat(num.toFixed(3));
-};
-
-const formatEquationNumber = (num) => {
-    if (Math.abs(num) < 0.001 && num !== 0) return num.toExponential(2);
-    return num.toFixed(3);
-};
-
-// Full Regression Suite
-const getRegressionParams = (points, type = 'linear') => {
-    const n = points.length;
-    const validPoints = points.filter(p => !isNaN(p.x) && !isNaN(p.y)).sort((a, b) => a.x - b.x);
-    if (validPoints.length < 2) return null;
-
-    let r2 = null;
-
-    const calculateR2 = (predictedY, actualY) => {
-        const yMean = actualY.reduce((a, b) => a + b, 0) / actualY.length;
-        const ssRes = actualY.reduce((sum, y, i) => sum + Math.pow(y - predictedY[i], 2), 0);
-        const ssTot = actualY.reduce((sum, y) => sum + Math.pow(y - yMean, 2), 0);
-        return ssTot === 0 ? 0 : 1 - (ssRes / ssTot);
-    };
-
-    // Determinant helper
-    const det3x3 = (m) => {
-        return m[0][0] * (m[1][1] * m[2][2] - m[2][1] * m[1][2]) -
-            m[0][1] * (m[1][0] * m[2][2] - m[1][2] * m[2][0]) +
-            m[0][2] * (m[1][0] * m[2][1] - m[1][1] * m[2][0]);
-    };
-
-    if (type === 'linear') {
-        let sumX = 0, sumY = 0, sumXY = 0, sumX2 = 0;
-        validPoints.forEach(p => { sumX += p.x; sumY += p.y; sumXY += p.x * p.y; sumX2 += p.x * p.x; });
-        const slope = (n * sumXY - sumX * sumY) / (n * sumX2 - sumX * sumX);
-        const intercept = (sumY - slope * sumX) / n;
-
-        const preds = validPoints.map(p => slope * p.x + intercept);
-        r2 = calculateR2(preds, validPoints.map(p => p.y));
-
-        return { type, slope, intercept, r2, equation: `y = ${formatEquationNumber(slope)}x + ${formatEquationNumber(intercept)}` };
-    }
-    else if (type === 'quadratic') {
-        let s00 = n, s10 = 0, s20 = 0, s30 = 0, s40 = 0, s01 = 0, s11 = 0, s21 = 0;
-        validPoints.forEach(p => {
-            const x = p.x; const y = p.y;
-            s10 += x; s20 += x * x; s30 += x * x * x; s40 += x * x * x * x;
-            s01 += y; s11 += x * y; s21 += x * x * y;
-        });
-        const M = [[s00, s10, s20], [s10, s20, s30], [s20, s30, s40]];
-        const Det = det3x3(M);
-        if (Det === 0) return null;
-        const c = det3x3([[s01, s10, s20], [s11, s20, s30], [s21, s30, s40]]) / Det;
-        const b = det3x3([[s00, s01, s20], [s10, s11, s30], [s20, s21, s40]]) / Det;
-        const a = det3x3([[s00, s10, s01], [s10, s20, s11], [s20, s30, s21]]) / Det;
-
-        const preds = validPoints.map(p => a * p.x * p.x + b * p.x + c);
-        r2 = calculateR2(preds, validPoints.map(p => p.y));
-
-        return { type, a, b, c, r2, equation: `y = ${formatEquationNumber(a)}x² + ${formatEquationNumber(b)}x + ${formatEquationNumber(c)}` };
-    }
-    else if (type === 'exponential') {
-        const v = validPoints.filter(p => p.y > 0);
-        if (v.length < 2) return null;
-        let sumX = 0, sumY = 0, sumXY = 0, sumX2 = 0;
-        const N = v.length;
-        v.forEach(p => {
-            const lny = Math.log(p.y);
-            sumX += p.x; sumY += lny; sumXY += p.x * lny; sumX2 += p.x * p.x;
-        });
-        const b = (N * sumXY - sumX * sumY) / (N * sumX2 - sumX * sumX);
-        const a = Math.exp((sumY - b * sumX) / N);
-
-        const preds = validPoints.map(p => a * Math.exp(b * p.x));
-        r2 = calculateR2(preds, validPoints.map(p => p.y));
-
-        return { type, a, b, r2, equation: `y = ${formatEquationNumber(a)}e^(${formatEquationNumber(b)}x)` };
-    }
-    else if (type === 'power') {
-        const v = validPoints.filter(p => p.x > 0 && p.y > 0);
-        if (v.length < 2) return null;
-        let sumlnX = 0, sumlnY = 0, sumlnXlnY = 0, sumlnX2 = 0;
-        const N = v.length;
-        v.forEach(p => {
-            const lnx = Math.log(p.x);
-            const lny = Math.log(p.y);
-            sumlnX += lnx; sumlnY += lny; sumlnXlnY += lnx * lny; sumlnX2 += lnx * lnx;
-        });
-        const b = (N * sumlnXlnY - sumlnX * sumlnY) / (N * sumlnX2 - sumlnX * sumlnX);
-        const a = Math.exp((sumlnY - b * sumlnX) / N);
-
-        const preds = validPoints.map(p => a * Math.pow(p.x, b));
-        r2 = calculateR2(preds, validPoints.map(p => p.y));
-
-        return { type, a, b, r2, equation: `y = ${formatEquationNumber(a)}x^${formatEquationNumber(b)}` };
-    }
-    else if (type === 'logarithmic') {
-        const v = validPoints.filter(p => p.x > 0);
-        if (v.length < 2) return null;
-        let sumLnX = 0, sumY = 0, sumLnXY = 0, sumLnX2 = 0;
-        const N = v.length;
-        v.forEach(p => {
-            const lnx = Math.log(p.x);
-            sumLnX += lnx; sumY += p.y; sumLnXY += lnx * p.y; sumLnX2 += lnx * lnx;
-        });
-        const b = (N * sumLnXY - sumLnX * sumY) / (N * sumLnX2 - sumLnX * sumLnX);
-        const a = (sumY - b * sumLnX) / N;
-
-        const preds = validPoints.map(p => a + b * Math.log(p.x));
-        r2 = calculateR2(preds, validPoints.map(p => p.y));
-
-        return { type, a, b, r2, equation: `y = ${formatEquationNumber(a)} + ${formatEquationNumber(b)}ln(x)` };
-    }
-    return null;
-};
-
-const generateTrendlineData = (params, xMin, xMax, yMinData, yMaxData) => {
-    if (!params || xMin === 'auto' || xMax === 'auto') return [];
-    const points = [];
-    const resolution = 150;
-    const step = (xMax - xMin) / (resolution - 1);
-    const yRange = Math.abs(yMaxData - yMinData) || 10;
-    const SAFE_MAX = yMaxData + (yRange * 5);
-    const SAFE_MIN = yMinData - (yRange * 5);
-
-    for (let i = 0; i < resolution; i++) {
-        const x = xMin + (i * step);
-        let y = null;
-        if (params.type === 'linear') y = params.slope * x + params.intercept;
-        else if (params.type === 'quadratic') y = params.a * x * x + params.b * x + params.c;
-        else if (params.type === 'exponential') y = params.a * Math.exp(params.b * x);
-        else if (params.type === 'power') y = params.a * Math.pow(x, params.b);
-        else if (params.type === 'logarithmic') {
-            if (x > 0) y = params.a + params.b * Math.log(x);
-        }
-
-        if (y !== null && !isNaN(y)) {
-            if (y > SAFE_MAX) y = SAFE_MAX;
-            if (y < SAFE_MIN) y = SAFE_MIN;
-            points.push({ x, y });
-        }
-    }
-    return points;
-};
-
-// Calculate Basic Statistics
-const calculateStats = (data, xKey, yKey) => {
-    if (!data) return { meanX: 0, meanY: 0, stdDevX: 0, stdDevY: 0, n: 0 };
-    const validData = data.filter(d => !isNaN(parseFloat(d[xKey])) && !isNaN(parseFloat(d[yKey])));
-    const n = validData.length;
-    if (n === 0) return { meanX: 0, meanY: 0, stdDevX: 0, stdDevY: 0, n: 0 };
-
-    const sumX = validData.reduce((acc, val) => acc + parseFloat(val[xKey]), 0);
-    const sumY = validData.reduce((acc, val) => acc + parseFloat(val[yKey]), 0);
-    const meanX = sumX / n;
-    const meanY = sumY / n;
-
-    const sumSqDiffX = validData.reduce((acc, val) => acc + Math.pow(parseFloat(val[xKey]) - meanX, 2), 0);
-    const sumSqDiffY = validData.reduce((acc, val) => acc + Math.pow(parseFloat(val[yKey]) - meanY, 2), 0);
-
-    const stdDevX = Math.sqrt(sumSqDiffX / n);
-    const stdDevY = Math.sqrt(sumSqDiffY / n);
-
-    return { meanX, meanY, stdDevX, stdDevY, n };
-};
-
-// Function Evaluator for Graphing
-const generateFunctionPoints = (equation, xMin = -10, xMax = 10, resolution = 200) => {
-    try {
-        const points = [];
-        const step = (xMax - xMin) / resolution;
-
-        let jsEq = equation.toLowerCase()
-            .replace(/\s+/g, '') // remove spaces
-            .replace(/\^/g, '**')
-            .replace(/(\d)([a-z(])/g, '$1*$2')
-            .replace(/(\))([a-z0-9])/g, '$1*$2')
-            .replace(/sin/g, 'Math.sin')
-            .replace(/cos/g, 'Math.cos')
-            .replace(/tan/g, 'Math.tan')
-            .replace(/log/g, 'Math.log10')
-            .replace(/ln/g, 'Math.log')
-            .replace(/sqrt/g, 'Math.sqrt')
-            .replace(/abs/g, 'Math.abs')
-            .replace(/pi/g, 'Math.PI')
-            .replace(/e/g, 'Math.E');
-
-        const f = new Function('x', `try { return ${jsEq}; } catch(e) { return NaN; }`);
-
-        for (let x = xMin; x <= xMax; x += step) {
-            const y = f(x);
-            if (!isNaN(y) && isFinite(y)) {
-                points.push({ x, y });
-            }
-        }
-        return points;
-    } catch {
-        return [];
-    }
-};
+const FUNCTION_PRESETS = [
+    { label: 'sin(x)', expr: 'sin(x)' },
+    { label: 'x² - 4', expr: 'x^2 - 4' },
+    { label: '1 / x', expr: '1/x' },
+    { label: 'cos(x) · x', expr: 'cos(x) * x' },
+    { label: 'tan(x)', expr: 'tan(x)' },
+    { label: 'e^(-x²)', expr: 'exp(-x^2)' },
+    { label: '√x', expr: 'sqrt(x)' },
+    { label: 'x³ - 3x', expr: 'x^3 - 3*x' }
+];
 
 // CSV Parser
 const parseCSV = (text) => {
@@ -294,34 +86,119 @@ const parseCSV = (text) => {
     return { headers, data };
 };
 
-// --- UI COMPONENTS ---
+// --- REFINED MINIMALIST UI COMPONENTS ---
 
 const Card = ({ children, className = "" }) => (
-    <div className={`bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden ${className}`}>{children}</div>
+    <div className={`bg-white border border-neutral-200 rounded-lg shadow-xs ${className}`}>{children}</div>
 );
 
 const Button = ({ onClick, children, variant = "primary", disabled = false, icon: Icon, size = "md", className = "" }) => {
-    const sizes = { sm: "py-1.5 px-3 text-xs", md: "py-2.5 px-4 text-sm", lg: "py-3.5 px-6 text-base", icon: "p-2" };
+    const sizes = { 
+        sm: "py-1.5 px-3 text-xs rounded-md", 
+        md: "py-2 px-3.5 text-xs font-medium rounded-md", 
+        lg: "py-2.5 px-5 text-sm font-medium rounded-lg", 
+        icon: "p-2 rounded-md" 
+    };
     const variants = {
-        primary: "bg-indigo-600 text-white hover:bg-indigo-700 shadow-sm hover:shadow-lg hover:-translate-y-0.5",
-        secondary: "bg-white text-slate-700 border border-slate-200 hover:bg-slate-50 hover:border-slate-300 hover:shadow-md",
-        danger: "bg-red-50 text-red-600 hover:bg-red-100",
-        ghost: "text-slate-500 hover:bg-slate-100",
-        glow: "bg-indigo-600 text-white btn-glow shadow-lg hover:shadow-xl",
-        glowSecondary: "bg-white text-slate-700 border-2 border-slate-200 btn-glow-secondary hover:border-indigo-400"
+        primary: "bg-neutral-900 text-white hover:bg-neutral-800 shadow-xs border border-neutral-900 transition-colors",
+        secondary: "bg-white text-neutral-800 border border-neutral-300 hover:bg-neutral-50 shadow-xs transition-colors",
+        accent: "bg-[#2563EB] text-white hover:bg-[#1D4ED8] shadow-xs border border-[#2563EB] transition-colors",
+        danger: "bg-white text-red-600 border border-red-200 hover:bg-red-50 transition-colors",
+        ghost: "bg-transparent text-neutral-700 hover:bg-neutral-100 transition-colors",
+        glow: "bg-neutral-900 text-white border border-neutral-900 hover:bg-neutral-800 shadow-sm",
+        glowSecondary: "bg-white text-neutral-900 border border-neutral-300 hover:bg-neutral-50 shadow-xs"
     };
     return (
-        <button onClick={onClick} disabled={disabled} className={`font-medium flex items-center justify-center gap-2 rounded-xl transition-all duration-300 active:scale-95 disabled:opacity-50 ${sizes[size]} ${variants[variant]} ${className}`}>
-            {Icon && <Icon size={size === 'sm' ? 14 : size === 'lg' ? 20 : 18} />}
+        <button 
+            onClick={onClick} 
+            disabled={disabled} 
+            className={`font-medium flex items-center justify-center gap-2 transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${sizes[size]} ${variants[variant]} ${className}`}
+        >
+            {Icon && <Icon size={size === 'sm' ? 14 : size === 'lg' ? 18 : 16} />}
             {children}
         </button>
     );
 };
 
+// Real-time Function Evaluator (restored from separated 2D toolset)
+function FunctionEvaluator({ equation }) {
+    const [testX, setTestX] = useState('0');
+
+    const isValid = useMemo(() => {
+        if (!equation || typeof equation !== 'string' || !equation.trim()) return false;
+        try {
+            const fn = compileMathFunction(equation);
+            return !!fn;
+        } catch {
+            return false;
+        }
+    }, [equation]);
+
+    const yIntercept = useMemo(() => {
+        if (!isValid) return '—';
+        try {
+            const pts = generateFunctionPoints(equation, 0, 0, 1);
+            if (pts && pts.length > 0 && pts[0].y !== null && !isNaN(pts[0].y)) {
+                return formatNumber(pts[0].y);
+            }
+            return 'Undefined';
+        } catch {
+            return 'Undefined';
+        }
+    }, [equation, isValid]);
+
+    const result = useMemo(() => {
+        if (!isValid) return '—';
+        try {
+            const val = parseFloat(testX);
+            if (isNaN(val)) return null;
+            const pts = generateFunctionPoints(equation, val, val, 1);
+            if (pts && pts.length > 0 && pts[0].y !== null && !isNaN(pts[0].y)) {
+                return formatNumber(pts[0].y);
+            }
+            return 'Undefined';
+        } catch {
+            return 'Undefined';
+        }
+    }, [equation, testX, isValid]);
+
+    return (
+        <div className="p-2.5 bg-neutral-50/80 border border-neutral-200 rounded-lg space-y-2" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between text-xs gap-2">
+                <span className="text-neutral-500 font-medium whitespace-nowrap">Y-Intercept (x = 0):</span>
+                <span className="font-mono font-bold text-neutral-900 bg-white px-2 py-0.5 rounded border border-neutral-200 text-xs shadow-2xs truncate max-w-[55%] text-right">
+                    {yIntercept ?? '—'}
+                </span>
+            </div>
+            <div className="flex items-center gap-1.5 text-xs pt-1.5 border-t border-neutral-200">
+                <span className="text-neutral-500 font-mono font-medium shrink-0">f(</span>
+                <input
+                    type="number"
+                    step="any"
+                    value={testX}
+                    onChange={(e) => setTestX(e.target.value)}
+                    className="w-14 px-1 py-0.5 text-xs font-mono bg-white border border-neutral-200 rounded outline-none focus:border-neutral-900 shadow-2xs text-center"
+                    placeholder="0"
+                />
+                <span className="text-neutral-500 font-mono font-medium shrink-0">) =</span>
+                <span className="font-mono font-bold text-blue-600 bg-white px-2 py-0.5 rounded border border-neutral-200 flex-1 text-right truncate shadow-2xs">
+                    {result ?? '—'}
+                </span>
+            </div>
+        </div>
+    );
+}
+
 // --- MAIN APP ---
 
 export default function App() {
     const [view, setView] = useState('dashboard');
+    const [appMode, setAppMode] = useState('data'); // 'data' | 'function'
+    const [functionList, setFunctionList] = useState([
+        { id: 'fn-1', expression: 'sin(x)', color: '#0044FF', visible: true },
+        { id: 'fn-2', expression: 'x^2 / 4', color: '#000000', visible: true }
+    ]);
+    const [viewportBounds, setViewportBounds] = useState({ xMin: -10, xMax: 10, yMin: -10, yMax: 10 });
     const [currentGraph, setCurrentGraph] = useState(null);
     const [isImporting, setIsImporting] = useState(false);
     const [showCSVModal, setShowCSVModal] = useState(false);
@@ -331,35 +208,12 @@ export default function App() {
     // New State for graph dimensions to handle square aspect ratio
     const [containerSize, setContainerSize] = useState({ width: 1, height: 1 });
     const graphContainerRef = useRef(null);
-    const lastTouchDistance = useRef(null);
+    const activePointers = useRef(new Map());
+    const pinchStartDist = useRef(null);
+    const pinchStartDomain = useRef(null);
 
     useEffect(() => {
         document.title = "Graphly";
-    }, []);
-
-    // Force mobile version and lock browser zoom on non-desktop devices
-    useEffect(() => {
-        const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent) ||
-            (navigator.maxTouchPoints > 0 && navigator.platform === 'MacIntel');
-
-        if (isMobile) {
-            // Prevent browser zoom on mobile
-            document.body.style.touchAction = 'pan-x pan-y';
-
-            // Prevent pinch zoom outside graph area
-            const preventZoom = (e) => {
-                if (e.touches.length > 1) {
-                    e.preventDefault();
-                }
-            };
-
-            document.addEventListener('touchmove', preventZoom, { passive: false });
-
-            return () => {
-                document.removeEventListener('touchmove', preventZoom);
-                document.body.style.touchAction = '';
-            };
-        }
     }, []);
 
     const [savedGraphs, setSavedGraphs] = useState([]);
@@ -379,6 +233,8 @@ export default function App() {
 
     // Cursor position for interactive background
     const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
+    const [cursorCoords, setCursorCoords] = useState(null);
+    const [quickFunctionExpr, setQuickFunctionExpr] = useState('');
 
     useEffect(() => {
         const loadGraphs = () => {
@@ -392,6 +248,67 @@ export default function App() {
             }
         };
         loadGraphs();
+    }, []);
+
+    // Hydrate state from shareable URL (?state=... or ?mode=...&fn=...)
+    useEffect(() => {
+        try {
+            const search = window.location.search;
+            if (!search) return;
+            const params = new URLSearchParams(search);
+            const stateParam = params.get('state');
+            const modeParam = params.get('mode');
+            const fnParam = params.get('fn') || params.get('expression');
+
+            if (stateParam) {
+                let jsonStr = '';
+                try {
+                    jsonStr = decodeURIComponent(escape(atob(stateParam)));
+                } catch {
+                    jsonStr = atob(stateParam);
+                }
+                const parsed = JSON.parse(jsonStr);
+
+                if (parsed.mode === '3d') {
+                    if (parsed.expression) {
+                        setThreeDEquation(parsed.expression);
+                    }
+                    setAppMode('3d');
+                    setView('editor');
+                } else if (parsed.mode === 'function' || parsed.mode === '2d') {
+                    setAppMode('2d');
+                    if (parsed.expression) {
+                        handleAIPlotFunction(parsed.expression);
+                    }
+                    if (parsed.viewportBounds) {
+                        setViewportBounds(parsed.viewportBounds);
+                    }
+                    setView('editor');
+                } else if (parsed.mode === 'data') {
+                    setAppMode('2d');
+                    if (parsed.rows && Array.isArray(parsed.rows)) {
+                        handleAILoadDataTable(parsed.name || "Shared Dataset", parsed.rows);
+                    } else {
+                        createBlankGraph();
+                    }
+                }
+            } else if ((modeParam === 'function' || modeParam === '2d') && fnParam) {
+                setAppMode('2d');
+                handleAIPlotFunction(fnParam);
+                setView('editor');
+            } else if (modeParam === '3d') {
+                if (fnParam) {
+                    setThreeDEquation(fnParam);
+                }
+                setAppMode('3d');
+                setView('editor');
+            } else if (modeParam === 'data') {
+                setAppMode('2d');
+                createBlankGraph();
+            }
+        } catch (err) {
+            console.warn("Could not hydrate graph state from URL:", err);
+        }
     }, []);
 
     // Toggle landing-page class to prevent scrolling
@@ -611,8 +528,41 @@ export default function App() {
             annotations: [],
             createdAt: new Date().toISOString()
         };
+        setAppMode('2d');
         setCurrentGraph(newGraph);
         setExpandedDatasetId(newGraph.datasets[0].id);
+        setIsImporting(false);
+        setView('editor');
+    };
+
+    const createFunctionGraph = (expression = 'sin(x) * x') => {
+        const cleanExpr = expression.replace(/^(y\s*=\s*|f\(x\)\s*=\s*)/i, '').trim();
+        const newDs = {
+            id: `ds-${Date.now()}`,
+            name: `f(x) = ${cleanExpr}`,
+            data: [],
+            equation: cleanExpr,
+            visible: true,
+            color: THEMES[0].color,
+            config: {
+                type: 'function',
+                xKey: 'x',
+                yKey: 'y',
+                showTrendline: false,
+                trendlineType: 'linear',
+                trendlineColor: '#ef4444'
+            }
+        };
+        const newGraph = {
+            title: `Function: ${cleanExpr}`,
+            datasets: [newDs],
+            globalConfig: { showGrid: true, enableZoom: true, xAxisLabel: "X", yAxisLabel: "Y", aspectRatio: "auto", showLabels: false },
+            annotations: [],
+            createdAt: new Date().toISOString()
+        };
+        setAppMode('2d');
+        setCurrentGraph(newGraph);
+        setExpandedDatasetId(newDs.id);
         setIsImporting(false);
         setView('editor');
     };
@@ -860,6 +810,41 @@ export default function App() {
         setExpandedDatasetId(newId);
     };
 
+    const addFunctionDataset = (expr) => {
+        const cleanExpr = (expr || 'sin(x)').replace(/^(y\s*=\s*|f\(x\)\s*=\s*)/i, '').trim();
+        const nextIdx = currentGraph?.datasets?.length || 0;
+        const newId = `ds-${Date.now()}`;
+        const newDs = {
+            id: newId,
+            name: `f(x) = ${cleanExpr}`,
+            data: [],
+            equation: cleanExpr,
+            visible: true,
+            color: THEMES[nextIdx % THEMES.length].color,
+            config: {
+                type: 'function',
+                xKey: 'x',
+                yKey: 'y',
+                showTrendline: false,
+                trendlineType: 'linear',
+                trendlineColor: '#ef4444'
+            }
+        };
+        if (currentGraph) {
+            setCurrentGraph(prev => ({ ...prev, datasets: [...prev.datasets, newDs] }));
+            setExpandedDatasetId(newId);
+        } else {
+            createFunctionGraph(cleanExpr);
+        }
+    };
+
+    const handleQuickFunctionSubmit = (e) => {
+        e?.preventDefault();
+        if (!quickFunctionExpr.trim()) return;
+        addFunctionDataset(quickFunctionExpr.trim());
+        setQuickFunctionExpr('');
+    };
+
     const saveGraph = async () => {
         if (!currentGraph) return;
 
@@ -932,8 +917,10 @@ export default function App() {
         }
 
         // Initial Domain Calc
-        const xPad = (globalBounds.xMax - globalBounds.xMin) * 0.1 || 1;
-        const yPad = (globalBounds.yMax - globalBounds.yMin) * 0.1 || 1;
+        const xDiff = globalBounds.xMax - globalBounds.xMin;
+        const yDiff = globalBounds.yMax - globalBounds.yMin;
+        const xPad = xDiff > 0 ? xDiff * 0.1 : (Math.abs(globalBounds.xMin) > 0 ? Math.abs(globalBounds.xMin) * 0.1 : 1);
+        const yPad = yDiff > 0 ? yDiff * 0.1 : (Math.abs(globalBounds.yMin) > 0 ? Math.abs(globalBounds.yMin) * 0.1 : 1);
 
         let d = {
             x: [globalBounds.xMin - xPad, globalBounds.xMax + xPad],
@@ -957,9 +944,13 @@ export default function App() {
     const xTicks = useMemo(() => {
         const interval = currentGraph?.globalConfig?.xGridInterval;
         if (interval && interval > 0) {
+            const range = currentDomain.x[1] - currentDomain.x[0];
+            if (range / interval > 100) {
+                return calculateNiceTicks(currentDomain.x[0], currentDomain.x[1]);
+            }
             const ticks = [];
             const start = Math.ceil(currentDomain.x[0] / interval) * interval;
-            for (let t = start; t <= currentDomain.x[1]; t += interval) {
+            for (let t = start; t <= currentDomain.x[1] && ticks.length < 50; t += interval) {
                 ticks.push(t);
             }
             return ticks;
@@ -970,9 +961,13 @@ export default function App() {
     const yTicks = useMemo(() => {
         const interval = currentGraph?.globalConfig?.yGridInterval;
         if (interval && interval > 0) {
+            const range = currentDomain.y[1] - currentDomain.y[0];
+            if (range / interval > 100) {
+                return calculateNiceTicks(currentDomain.y[0], currentDomain.y[1]);
+            }
             const ticks = [];
             const start = Math.ceil(currentDomain.y[0] / interval) * interval;
-            for (let t = start; t <= currentDomain.y[1]; t += interval) {
+            for (let t = start; t <= currentDomain.y[1] && ticks.length < 50; t += interval) {
                 ticks.push(t);
             }
             return ticks;
@@ -996,7 +991,7 @@ export default function App() {
                 // This gives the "Desmos" feel of infinite scrolling
                 const range = currentDomain.x[1] - currentDomain.x[0];
                 const buffer = range * 0.5; // Render a bit outside view
-                points = generateFunctionPoints(ds.equation, currentDomain.x[0] - buffer, currentDomain.x[1] + buffer);
+                points = generateFunctionPoints(ds.equation, currentDomain.x[0] - buffer, currentDomain.x[1] + buffer, 400);
             } else {
                 // Standard Data Dataset
                 points = ds.data.map(d => ({
@@ -1087,82 +1082,108 @@ export default function App() {
         setZoomDomain({ x: ['auto', 'auto'], y: ['auto', 'auto'] });
     };
 
-    const handleMouseDown = (e) => {
-        if (selectedData) return;
-        if (!currentGraph?.globalConfig?.enableZoom) return;
-        setIsDragging(true);
-        lastMousePos.current = { x: e.clientX, y: e.clientY };
-    };
-
-    const handleMouseMove = (e) => {
-        if (!isDragging) return;
-        const dx = e.clientX - lastMousePos.current.x;
-        const dy = e.clientY - lastMousePos.current.y;
-        const xR = currentDomain.x[1] - currentDomain.x[0];
-        const yR = currentDomain.y[1] - currentDomain.y[0];
-        const xS = -1 * (dx / (containerSize.width || 500)) * xR;
-        const yS = (dy / (containerSize.height || 300)) * yR;
-        setZoomDomain({
-            x: [currentDomain.x[0] + xS, currentDomain.x[1] + xS],
-            y: [currentDomain.y[0] + yS, currentDomain.y[1] + yS]
-        });
-        lastMousePos.current = { x: e.clientX, y: e.clientY };
-    };
-
-    // TOUCH SUPPORT
-    const handleTouchStart = (e) => {
+    // UNIFIED POINTER SUPPORT (Pan & Pinch-to-Zoom)
+    const handlePointerDown = (e) => {
         if (selectedData) return;
         if (!currentGraph?.globalConfig?.enableZoom) return;
 
-        if (e.touches.length === 2) {
-            // Pinch start
-            const d = Math.hypot(
-                e.touches[0].clientX - e.touches[1].clientX,
-                e.touches[0].clientY - e.touches[1].clientY
-            );
-            lastTouchDistance.current = d;
-        } else {
+        activePointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+        try {
+            e.currentTarget.setPointerCapture(e.pointerId);
+        } catch (err) {
+            // ignore if capture fails
+        }
+
+        if (activePointers.current.size === 1) {
             setIsDragging(true);
-            lastMousePos.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+            lastMousePos.current = { x: e.clientX, y: e.clientY };
+        } else if (activePointers.current.size === 2) {
+            const points = Array.from(activePointers.current.values());
+            pinchStartDist.current = Math.hypot(points[0].x - points[1].x, points[0].y - points[1].y);
+            pinchStartDomain.current = {
+                x: [...currentDomain.x],
+                y: [...currentDomain.y]
+            };
         }
     };
 
-    const handleTouchMove = (e) => {
-        if (e.touches.length === 2 && lastTouchDistance.current) {
-            // Pinch Zoom
-            const d = Math.hypot(
-                e.touches[0].clientX - e.touches[1].clientX,
-                e.touches[0].clientY - e.touches[1].clientY
-            );
+    const handlePointerMove = (e) => {
+        // Track live mathematical coordinates for HUD readout
+        if (graphContainerRef.current) {
+            const rect = graphContainerRef.current.getBoundingClientRect();
+            const px = e.clientX - rect.left;
+            const py = e.clientY - rect.top;
+            if (px >= 0 && px <= rect.width && py >= 0 && py <= rect.height) {
+                const xRange = currentDomain.x[1] - currentDomain.x[0];
+                const yRange = currentDomain.y[1] - currentDomain.y[0];
+                const plotW = Math.max(1, rect.width - 70);
+                const plotH = Math.max(1, rect.height - 60);
+                const xFrac = Math.max(0, Math.min(1, (px - 50) / plotW));
+                const yFrac = Math.max(0, Math.min(1, (py - 20) / plotH));
+                const mx = currentDomain.x[0] + xFrac * xRange;
+                const my = currentDomain.y[1] - yFrac * yRange;
+                setCursorCoords({ x: mx, y: my });
+            }
+        }
 
-            const delta = d - lastTouchDistance.current;
-            const scale = delta > 0 ? 0.95 : 1.05; // Pinch out (zoom in) vs Pinch in (zoom out)
-            lastTouchDistance.current = d;
+        if (!activePointers.current.has(e.pointerId)) return;
+        activePointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
 
-            const xR = currentDomain.x[1] - currentDomain.x[0];
-            const yR = currentDomain.y[1] - currentDomain.y[0];
-            const xM = (currentDomain.x[1] + currentDomain.x[0]) / 2;
-            const yM = (currentDomain.y[1] + currentDomain.y[0]) / 2;
+        // Two-finger pinch zoom
+        if (activePointers.current.size === 2 && pinchStartDist.current && pinchStartDomain.current) {
+            const points = Array.from(activePointers.current.values());
+            const currentDist = Math.hypot(points[0].x - points[1].x, points[0].y - points[1].y);
+            if (currentDist > 5 && pinchStartDist.current > 5) {
+                const scale = pinchStartDist.current / currentDist;
+                const baseDomain = pinchStartDomain.current;
+                const xR = baseDomain.x[1] - baseDomain.x[0];
+                const yR = baseDomain.y[1] - baseDomain.y[0];
+                const xM = (baseDomain.x[1] + baseDomain.x[0]) / 2;
+                const yM = (baseDomain.y[1] + baseDomain.y[0]) / 2;
 
-            setZoomDomain({
-                x: [xM - (xR * scale) / 2, xM + (xR * scale) / 2],
-                y: [yM - (yR * scale) / 2, yM + (yR * scale) / 2]
-            });
+                setZoomDomain({
+                    x: [xM - (xR * scale) / 2, xM + (xR * scale) / 2],
+                    y: [yM - (yR * scale) / 2, yM + (yR * scale) / 2]
+                });
+            }
             return;
         }
 
-        if (!isDragging) return;
-        const dx = e.touches[0].clientX - lastMousePos.current.x;
-        const dy = e.touches[0].clientY - lastMousePos.current.y;
-        const xR = currentDomain.x[1] - currentDomain.x[0];
-        const yR = currentDomain.y[1] - currentDomain.y[0];
-        const xS = -1 * (dx / (containerSize.width || 500)) * xR;
-        const yS = (dy / (containerSize.height || 300)) * yR;
-        setZoomDomain({
-            x: [currentDomain.x[0] + xS, currentDomain.x[1] + xS],
-            y: [currentDomain.y[0] + yS, currentDomain.y[1] + yS]
-        });
-        lastMousePos.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+        // Single-pointer drag pan
+        if (isDragging && activePointers.current.size === 1) {
+            const dx = e.clientX - lastMousePos.current.x;
+            const dy = e.clientY - lastMousePos.current.y;
+            const xR = currentDomain.x[1] - currentDomain.x[0];
+            const yR = currentDomain.y[1] - currentDomain.y[0];
+            const xS = -1 * (dx / (containerSize.width || 500)) * xR;
+            const yS = (dy / (containerSize.height || 300)) * yR;
+            setZoomDomain({
+                x: [currentDomain.x[0] + xS, currentDomain.x[1] + xS],
+                y: [currentDomain.y[0] + yS, currentDomain.y[1] + yS]
+            });
+            lastMousePos.current = { x: e.clientX, y: e.clientY };
+        }
+    };
+
+    const handlePointerUp = (e) => {
+        activePointers.current.delete(e.pointerId);
+        try {
+            e.currentTarget.releasePointerCapture(e.pointerId);
+        } catch (err) {
+            // ignore
+        }
+
+        if (activePointers.current.size === 0) {
+            setIsDragging(false);
+            pinchStartDist.current = null;
+            pinchStartDomain.current = null;
+        } else if (activePointers.current.size === 1) {
+            const remaining = Array.from(activePointers.current.values())[0];
+            lastMousePos.current = { x: remaining.x, y: remaining.y };
+            pinchStartDist.current = null;
+            pinchStartDomain.current = null;
+        }
     };
 
     const handlePointClick = (arg1, arg2, ds, type = 'point') => {
@@ -1245,6 +1266,77 @@ export default function App() {
         }
     };
 
+    // --- AI CHAT TOOL HANDLERS ---
+    const [threeDEquation, setThreeDEquation] = useState('sin(x) * cos(y)');
+
+    const handleAIPlotFunction = (expression) => {
+        setAppMode('2d');
+        setView('editor');
+        const cleanExpr = (expression || 'sin(x)').replace(/^(y\s*=\s*|f\(x\)\s*=\s*)/i, '').trim();
+        const newDs = {
+            id: `ds-${Date.now()}`,
+            name: cleanExpr.includes('=') ? cleanExpr : `f(x) = ${cleanExpr}`,
+            data: [],
+            equation: cleanExpr,
+            visible: true,
+            color: THEMES[(currentGraph?.datasets?.length || 0) % THEMES.length].color,
+            config: {
+                type: 'function',
+                xKey: 'x',
+                yKey: 'y',
+                showTrendline: false,
+                trendlineType: 'linear',
+                trendlineColor: '#ef4444'
+            }
+        };
+        if (currentGraph) {
+            setCurrentGraph(prev => ({ ...prev, datasets: [...prev.datasets, newDs] }));
+            setExpandedDatasetId(newDs.id);
+        } else {
+            createFunctionGraph(cleanExpr);
+        }
+    };
+
+    const handleAIPlotImplicit = (expression) => {
+        handleAIPlotFunction(expression);
+    };
+
+    const handleAILoadDataTable = (name, rows) => {
+        setAppMode('2d');
+        setView('editor');
+        const newDataset = {
+            id: `ds-${Date.now()}`,
+            name: name || "AI Data",
+            data: rows,
+            visible: true,
+            color: THEMES[0].color,
+            config: { type: 'scatter', xKey: 'x', yKey: 'y', showTrendline: true, trendlineType: 'linear', trendlineColor: '#ef4444' }
+        };
+        if (currentGraph) {
+            setCurrentGraph(prev => ({ ...prev, datasets: [...prev.datasets, newDataset] }));
+        } else {
+            setCurrentGraph({
+                title: name || "AI Data Plot",
+                datasets: [newDataset],
+                globalConfig: { showGrid: true, enableZoom: true, xAxisLabel: "X", yAxisLabel: "Y", aspectRatio: "auto", showLabels: false },
+                annotations: [],
+                createdAt: new Date().toISOString()
+            });
+        }
+    };
+
+    const handleAISwitchTo3D = (expression) => {
+        if (expression && typeof expression === 'string') {
+            setThreeDEquation(expression);
+        }
+        setAppMode('3d');
+        setView('editor');
+    };
+
+    const handleAISetViewportBounds = (bounds) => {
+        setViewportBounds(bounds);
+    };
+
     return (
         <div className="min-h-screen bg-[#F8FAFC] font-sans text-slate-800 selection:bg-indigo-100 selection:text-indigo-900 overflow-hidden">
 
@@ -1275,21 +1367,43 @@ export default function App() {
         }
       `}</style>
 
-            <nav className={`sticky top-0 z-50 h-16 flex items-center justify-between px-4 md:px-6 transition-all duration-500 ${view === 'dashboard' && savedGraphs.length === 0 ? 'bg-transparent border-transparent' : 'bg-white/80 backdrop-blur-md border-b border-slate-200/60'}`}>
-                <div className="flex items-center gap-3 cursor-pointer group" onClick={() => setView('dashboard')}>
-                    <div className="w-9 h-9 bg-gradient-to-tr from-indigo-600 to-violet-600 rounded-xl flex items-center justify-center shadow-lg shadow-indigo-200/50 border border-white/20 transition-transform duration-300 group-hover:scale-110">
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="text-white">
-                            <circle cx="5" cy="19" r="2" />
-                            <circle cx="19" cy="5" r="2" />
-                            <circle cx="19" cy="19" r="2" />
-                            <path d="M5 19L19 5" />
-                            <path d="M5 19L19 19" />
-                        </svg>
+            <nav className="sticky top-0 z-50 h-14 bg-white border-b border-neutral-200 flex items-center justify-between px-4 md:px-6">
+                <div className="flex items-center gap-3 sm:gap-4">
+                    <div className="cursor-pointer" onClick={() => setView('dashboard')}>
+                        <Logo size={28} />
                     </div>
-                    <span className="font-bold text-xl tracking-tight text-slate-900 hidden sm:inline transition-colors duration-300 group-hover:text-indigo-600">Graphly</span>
+
+                    {/* Mode Switcher: 2D Plotter vs 3D Surface */}
+                    <div className="flex bg-neutral-100 p-0.5 rounded-lg border border-neutral-200">
+                        <button
+                            type="button"
+                            onClick={() => {
+                                setAppMode('2d');
+                                if (view !== 'editor') setView('editor');
+                                if (!currentGraph) createBlankGraph();
+                            }}
+                            className={`px-3 py-1 text-xs font-semibold rounded-md transition-all cursor-pointer ${
+                                appMode !== '3d' ? 'bg-white text-neutral-900 shadow-xs' : 'text-neutral-600 hover:text-neutral-900'
+                            }`}
+                        >
+                            2D Plotter
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => {
+                                setAppMode('3d');
+                                if (view !== 'editor') setView('editor');
+                            }}
+                            className={`px-3 py-1 text-xs font-semibold rounded-md transition-all cursor-pointer ${
+                                appMode === '3d' ? 'bg-white text-neutral-900 shadow-xs' : 'text-neutral-600 hover:text-neutral-900'
+                            }`}
+                        >
+                            3D Surface
+                        </button>
+                    </div>
                 </div>
-                <div className="flex gap-2">
-                    {view === 'editor' && (
+                <div className="flex gap-2 items-center">
+                    {view === 'editor' && appMode !== '3d' && currentGraph && (
                         <>
                             <Button size="sm" variant="secondary" icon={Download} onClick={() => {
                                 const svgElement = document.querySelector('.recharts-surface');
@@ -1314,7 +1428,7 @@ export default function App() {
                                     ctx.fillStyle = "white";
                                     ctx.fillRect(0, 0, width, height);
                                     ctx.font = "bold 36px sans-serif";
-                                    ctx.fillStyle = "#334155";
+                                    ctx.fillStyle = "#000000";
                                     ctx.textAlign = "center";
                                     ctx.textBaseline = "middle";
                                     ctx.fillText(currentGraph.title || "Untitled Graph", width / 2, (titleHeight / 2) + 20);
@@ -1374,494 +1488,159 @@ export default function App() {
                                 img.src = url;
                             }}><span className="hidden sm:inline">PDF</span></Button>
                             <Button size="sm" variant="secondary" icon={FileSpreadsheet} onClick={exportCSV}><span className="hidden sm:inline">CSV</span></Button>
-                            <Button size="sm" icon={Save} onClick={saveGraph}><span className="hidden sm:inline">Save</span></Button>
+                            <Button size="sm" variant="primary" icon={Save} onClick={saveGraph}><span className="hidden sm:inline">Save</span></Button>
                             <Button size="sm" variant="secondary" icon={FilePlus} onClick={startImport}><span className="hidden sm:inline">Import</span></Button>
                         </>
                     )}
-                    {view === 'dashboard' && savedGraphs.length > 0 && (
-                        <div className="flex gap-2 animate-fade-in">
-                            <Button onClick={createBlankGraph} icon={Plus} size="sm" className="transition-all duration-300 hover:scale-105"><span className="hidden sm:inline">Create</span></Button>
-                            <Button onClick={() => { setIsImporting(false); setView('scan'); }} variant="secondary" icon={Camera} size="sm" className="transition-all duration-300 hover:scale-105"><span className="hidden sm:inline">Scan</span></Button>
+                    {view === 'dashboard' && (
+                        <div className="flex gap-2">
+                            <Button onClick={createBlankGraph} icon={Plus} size="sm">
+                                <span className="hidden sm:inline">New Graph</span>
+                            </Button>
+                            <Button onClick={() => { setIsImporting(false); setView('scan'); }} variant="secondary" icon={Camera} size="sm">
+                                <span className="hidden sm:inline">Scan</span>
+                            </Button>
+                            <Button onClick={() => setShowApiKeyModal(true)} variant="secondary" icon={Key} size="sm">
+                                <span className="hidden sm:inline">API Key</span>
+                            </Button>
                         </div>
                     )}
                 </div>
             </nav>
 
-            {/* Full-page background for landing - extends behind header */}
-            {view === 'dashboard' && savedGraphs.length === 0 && (
-                <div className="fixed inset-0 z-0 pointer-events-none">
-                    {/* Animated Flickering Grid Background - Full Viewport */}
-                    <FlickeringGrid
-                        className="absolute inset-0"
-                        squareSize={4}
-                        gridGap={6}
-                        color="#6366f1"
-                        maxOpacity={0.15}
-                        flickerChance={0.1}
-                    />
-
-                    {/* Gradient Orbs */}
-                    <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-gradient-to-br from-indigo-200/50 to-violet-200/50 rounded-full blur-3xl -translate-y-1/3 translate-x-1/3 pointer-events-none"></div>
-                    <div className="absolute bottom-0 left-0 w-[400px] h-[400px] bg-gradient-to-tr from-blue-200/40 to-cyan-200/40 rounded-full blur-3xl translate-y-1/3 -translate-x-1/3 pointer-events-none"></div>
-
-                    {/* Colorful gradient band at bottom for glassmorphism visibility */}
-                    <div className="absolute bottom-0 left-0 right-0 h-32 bg-gradient-to-t from-indigo-500/30 via-violet-400/20 to-transparent pointer-events-none"></div>
-                </div>
-            )}
-
             {view === 'dashboard' && (
-                <main className={`max-w-6xl mx-auto px-4 py-6 md:px-6 md:py-10 ${savedGraphs.length === 0 ? 'overflow-hidden max-w-none px-0 py-0 h-screen' : 'h-[calc(100vh-64px)] overflow-y-auto'}`}>
-                    {savedGraphs.length === 0 ? (
-                        /* ==========================================
-                           LANDING PAGE - Full Screen Hero Only
-                           ========================================== */
-                        <div
-                            className="h-full relative flex items-start px-4 pt-8"
-                            onMouseMove={(e) => setMousePos({ x: e.clientX, y: e.clientY })}
-                        >
-                            {/* Hero Content Section */}
-                            <section className="relative w-full max-w-6xl mx-auto mt-8">
-                                {/* Content is now relative to the fixed background */}
+                <main className="relative min-h-[calc(100vh-56px)] flex flex-col items-center justify-center px-4 py-12 overflow-hidden bg-white">
+                    {/* Ultra-lightweight animated harmonic math wave background */}
+                    <MathBackground />
 
-                                {/* Interactive Floating Elements - Math symbols + Graph elements */}
-                                <div className="absolute inset-0 pointer-events-none overflow-hidden">
-                                    {/* Sigma Symbol */}
-                                    <div
-                                        className="absolute text-indigo-200/60 text-6xl font-serif select-none transition-transform duration-700 ease-out"
-                                        style={{
-                                            top: '5%',
-                                            left: '5%',
-                                            transform: `translate(${(mousePos.x - window.innerWidth / 2) * 0.02}px, ${(mousePos.y - window.innerHeight / 2) * 0.02}px)`
-                                        }}
-                                    >∑</div>
-
-                                    {/* Pi Symbol */}
-                                    <div
-                                        className="absolute text-violet-200/50 text-5xl font-serif select-none transition-transform duration-500 ease-out"
-                                        style={{
-                                            top: '15%',
-                                            right: '12%',
-                                            transform: `translate(${(mousePos.x - window.innerWidth / 2) * -0.03}px, ${(mousePos.y - window.innerHeight / 2) * 0.025}px)`
-                                        }}
-                                    >π</div>
-
-                                    {/* Integral Symbol */}
-                                    <div
-                                        className="absolute text-blue-200/50 text-7xl font-serif select-none transition-transform duration-600 ease-out"
-                                        style={{
-                                            bottom: '25%',
-                                            left: '3%',
-                                            transform: `translate(${(mousePos.x - window.innerWidth / 2) * 0.015}px, ${(mousePos.y - window.innerHeight / 2) * -0.02}px)`
-                                        }}
-                                    >∫</div>
-
-                                    {/* Delta Symbol */}
-                                    <div
-                                        className="absolute text-indigo-300/40 text-4xl font-serif select-none transition-transform duration-800 ease-out"
-                                        style={{
-                                            top: '55%',
-                                            right: '8%',
-                                            transform: `translate(${(mousePos.x - window.innerWidth / 2) * -0.025}px, ${(mousePos.y - window.innerHeight / 2) * -0.015}px)`
-                                        }}
-                                    >Δ</div>
-
-                                    {/* Mini Bar Chart - Interactive SVG */}
-                                    <div
-                                        className="absolute select-none transition-transform duration-500 ease-out"
-                                        style={{
-                                            top: '8%',
-                                            left: '25%',
-                                            transform: `translate(${(mousePos.x - window.innerWidth / 2) * 0.025}px, ${(mousePos.y - window.innerHeight / 2) * 0.02}px)`
-                                        }}
-                                    >
-                                        <svg width="60" height="50" viewBox="0 0 60 50" className="opacity-30">
-                                            <rect x="5" y="30" width="10" height="20" fill="#6366f1" rx="2" />
-                                            <rect x="20" y="15" width="10" height="35" fill="#8b5cf6" rx="2" />
-                                            <rect x="35" y="25" width="10" height="25" fill="#a855f7" rx="2" />
-                                            <rect x="50" y="10" width="10" height="40" fill="#6366f1" rx="2" />
-                                        </svg>
-                                    </div>
-
-                                    {/* Mini Line Chart */}
-                                    <div
-                                        className="absolute select-none transition-transform duration-600 ease-out"
-                                        style={{
-                                            bottom: '35%',
-                                            right: '20%',
-                                            transform: `translate(${(mousePos.x - window.innerWidth / 2) * -0.03}px, ${(mousePos.y - window.innerHeight / 2) * 0.025}px)`
-                                        }}
-                                    >
-                                        <svg width="80" height="40" viewBox="0 0 80 40" className="opacity-25">
-                                            <polyline
-                                                points="5,35 20,25 35,30 50,15 65,20 75,5"
-                                                fill="none"
-                                                stroke="#6366f1"
-                                                strokeWidth="3"
-                                                strokeLinecap="round"
-                                                strokeLinejoin="round"
-                                            />
-                                            <circle cx="5" cy="35" r="3" fill="#6366f1" />
-                                            <circle cx="35" cy="30" r="3" fill="#8b5cf6" />
-                                            <circle cx="75" cy="5" r="3" fill="#6366f1" />
-                                        </svg>
-                                    </div>
-
-                                    {/* Pie Chart Slice */}
-                                    <div
-                                        className="absolute select-none transition-transform duration-700 ease-out"
-                                        style={{
-                                            top: '40%',
-                                            left: '12%',
-                                            transform: `translate(${(mousePos.x - window.innerWidth / 2) * 0.02}px, ${(mousePos.y - window.innerHeight / 2) * -0.025}px)`
-                                        }}
-                                    >
-                                        <svg width="50" height="50" viewBox="0 0 50 50" className="opacity-25">
-                                            <circle cx="25" cy="25" r="20" fill="none" stroke="#e0e7ff" strokeWidth="8" />
-                                            <circle
-                                                cx="25" cy="25" r="20"
-                                                fill="none"
-                                                stroke="#6366f1"
-                                                strokeWidth="8"
-                                                strokeDasharray="75 125"
-                                                strokeLinecap="round"
-                                            />
-                                        </svg>
-                                    </div>
-
-                                    {/* Scatter Plot Points */}
-                                    <div
-                                        className="absolute select-none transition-transform duration-500 ease-out"
-                                        style={{
-                                            top: '20%',
-                                            left: '40%',
-                                            transform: `translate(${(mousePos.x - window.innerWidth / 2) * -0.018}px, ${(mousePos.y - window.innerHeight / 2) * 0.015}px)`
-                                        }}
-                                    >
-                                        <svg width="60" height="50" viewBox="0 0 60 50" className="opacity-20">
-                                            <circle cx="10" cy="40" r="4" fill="#6366f1" />
-                                            <circle cx="20" cy="30" r="5" fill="#8b5cf6" />
-                                            <circle cx="35" cy="35" r="3" fill="#a855f7" />
-                                            <circle cx="45" cy="20" r="4" fill="#6366f1" />
-                                            <circle cx="55" cy="15" r="5" fill="#8b5cf6" />
-                                        </svg>
-                                    </div>
-
-                                    {/* Trend Arrow Up */}
-                                    <div
-                                        className="absolute select-none transition-transform duration-600 ease-out"
-                                        style={{
-                                            bottom: '20%',
-                                            left: '35%',
-                                            transform: `translate(${(mousePos.x - window.innerWidth / 2) * 0.022}px, ${(mousePos.y - window.innerHeight / 2) * -0.02}px) rotate(-45deg)`
-                                        }}
-                                    >
-                                        <svg width="40" height="40" viewBox="0 0 40 40" className="opacity-20">
-                                            <path d="M5 35 L35 5" stroke="#10b981" strokeWidth="4" strokeLinecap="round" />
-                                            <path d="M20 5 L35 5 L35 20" stroke="#10b981" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" fill="none" />
-                                        </svg>
-                                    </div>
-
-                                    {/* Data Grid */}
-                                    <div
-                                        className="absolute select-none transition-transform duration-700 ease-out"
-                                        style={{
-                                            top: '65%',
-                                            right: '30%',
-                                            transform: `translate(${(mousePos.x - window.innerWidth / 2) * -0.015}px, ${(mousePos.y - window.innerHeight / 2) * 0.018}px)`
-                                        }}
-                                    >
-                                        <svg width="50" height="40" viewBox="0 0 50 40" className="opacity-15">
-                                            <rect x="0" y="0" width="15" height="12" fill="#6366f1" rx="2" />
-                                            <rect x="18" y="0" width="15" height="12" fill="#8b5cf6" rx="2" />
-                                            <rect x="36" y="0" width="15" height="12" fill="#a855f7" rx="2" />
-                                            <rect x="0" y="14" width="15" height="12" fill="#a855f7" rx="2" />
-                                            <rect x="18" y="14" width="15" height="12" fill="#6366f1" rx="2" />
-                                            <rect x="36" y="14" width="15" height="12" fill="#8b5cf6" rx="2" />
-                                            <rect x="0" y="28" width="15" height="12" fill="#8b5cf6" rx="2" />
-                                            <rect x="18" y="28" width="15" height="12" fill="#a855f7" rx="2" />
-                                            <rect x="36" y="28" width="15" height="12" fill="#6366f1" rx="2" />
-                                        </svg>
-                                    </div>
-
-                                    {/* Theta */}
-                                    <div
-                                        className="absolute text-indigo-200/35 text-4xl font-serif select-none transition-transform duration-700 ease-out"
-                                        style={{
-                                            top: '3%',
-                                            left: '60%',
-                                            transform: `translate(${(mousePos.x - window.innerWidth / 2) * -0.015}px, ${(mousePos.y - window.innerHeight / 2) * 0.02}px)`
-                                        }}
-                                    >θ</div>
-
-                                    {/* Coordinate axes icon */}
-                                    <div
-                                        className="absolute select-none transition-transform duration-500 ease-out"
-                                        style={{
-                                            bottom: '15%',
-                                            left: '55%',
-                                            transform: `translate(${(mousePos.x - window.innerWidth / 2) * 0.028}px, ${(mousePos.y - window.innerHeight / 2) * -0.018}px)`
-                                        }}
-                                    >
-                                        <svg width="45" height="45" viewBox="0 0 45 45" className="opacity-20">
-                                            <path d="M5 40 L5 5" stroke="#6366f1" strokeWidth="2" strokeLinecap="round" />
-                                            <path d="M5 40 L40 40" stroke="#6366f1" strokeWidth="2" strokeLinecap="round" />
-                                            <path d="M5 5 L2 10 M5 5 L8 10" stroke="#6366f1" strokeWidth="2" strokeLinecap="round" />
-                                            <path d="M40 40 L35 37 M40 40 L35 43" stroke="#6366f1" strokeWidth="2" strokeLinecap="round" />
-                                        </svg>
-                                    </div>
-
-                                    {/* Function curve */}
-                                    <div
-                                        className="absolute select-none transition-transform duration-600 ease-out"
-                                        style={{
-                                            top: '30%',
-                                            right: '5%',
-                                            transform: `translate(${(mousePos.x - window.innerWidth / 2) * -0.022}px, ${(mousePos.y - window.innerHeight / 2) * 0.015}px)`
-                                        }}
-                                    >
-                                        <svg width="60" height="40" viewBox="0 0 60 40" className="opacity-20">
-                                            <path d="M5 35 Q 15 5, 30 20 T 55 10" fill="none" stroke="#8b5cf6" strokeWidth="3" strokeLinecap="round" />
-                                        </svg>
-                                    </div>
-
-                                    {/* Plus-minus */}
-                                    <div
-                                        className="absolute text-violet-300/35 text-3xl select-none transition-transform duration-600 ease-out"
-                                        style={{
-                                            top: '50%',
-                                            left: '22%',
-                                            transform: `translate(${(mousePos.x - window.innerWidth / 2) * -0.022}px, ${(mousePos.y - window.innerHeight / 2) * 0.015}px)`
-                                        }}
-                                    >±</div>
-
-                                    {/* Infinity Symbol */}
-                                    <div
-                                        className="absolute text-cyan-200/40 text-5xl select-none transition-transform duration-700 ease-out"
-                                        style={{
-                                            bottom: '40%',
-                                            right: '3%',
-                                            transform: `translate(${(mousePos.x - window.innerWidth / 2) * 0.035}px, ${(mousePos.y - window.innerHeight / 2) * 0.03}px)`
-                                        }}
-                                    >∞</div>
-                                </div>
-
-                                <div className="relative max-w-6xl mx-auto">
-                                    <div className="grid lg:grid-cols-2 gap-12 items-center">
-                                        {/* Left Content */}
-                                        <div className="text-center lg:text-left">
-                                            <div className="inline-flex items-center gap-2 bg-indigo-50 text-indigo-700 px-4 py-2 rounded-full text-sm font-medium mb-6 animate-fade-in-up">
-                                                <Zap size={16} />
-                                                <span>AI-Powered Graph Generation</span>
-                                            </div>
-
-                                            <h1 className="text-4xl md:text-5xl lg:text-6xl font-bold text-slate-900 leading-tight mb-6 animate-fade-in-up delay-100" style={{ opacity: 0, animationFillMode: 'forwards' }}>
-                                                Visualize Data.
-                                                <br />
-                                                <span className="bg-gradient-to-r from-indigo-600 to-violet-600 bg-clip-text text-transparent">
-                                                    Discover Insights.
-                                                </span>
-                                            </h1>
-
-                                            <p className="text-lg md:text-xl text-slate-600 mb-8 max-w-lg mx-auto lg:mx-0 animate-fade-in-up delay-200" style={{ opacity: 0, animationFillMode: 'forwards' }}>
-                                                Transform raw data into beautiful, accurate graphs. Scan datasheets, plot functions, and analyze trends with intelligent precision.
-                                            </p>
-
-                                            <div className="flex flex-col sm:flex-row gap-4 justify-center lg:justify-start animate-fade-in-up delay-300" style={{ opacity: 0, animationFillMode: 'forwards' }}>
-                                                <Button onClick={createBlankGraph} variant="glow" size="lg" icon={Plus}>
-                                                    Create Graph
-                                                </Button>
-                                                <Button onClick={() => { setIsImporting(false); setView('scan'); }} variant="glowSecondary" size="lg" icon={Camera}>
-                                                    Scan Image
-                                                </Button>
-                                                <button
-                                                    onClick={() => setShowApiKeyModal(true)}
-                                                    className="p-3.5 bg-white border border-indigo-100 rounded-xl text-indigo-600 hover:bg-indigo-50 hover:border-indigo-200 transition-all shadow-sm"
-                                                    title="API Key Settings"
-                                                >
-                                                    <Key size={20} />
-                                                </button>
-                                            </div>
-
-                                            {/* Trust Indicators */}
-                                            <div className="mt-10 flex items-center gap-6 justify-center lg:justify-start text-sm text-slate-500 animate-fade-in-up delay-400" style={{ opacity: 0, animationFillMode: 'forwards' }}>
-                                                <div className="flex items-center gap-2">
-                                                    <Check size={16} className="text-green-500" />
-                                                    <span>100% Free</span>
-                                                </div>
-                                                <div className="flex items-center gap-2">
-                                                    <Check size={16} className="text-green-500" />
-                                                    <span>No Account Needed</span>
-                                                </div>
-                                            </div>
-                                        </div>
-
-                                        {/* Right - Animated Graph Visual */}
-                                        <div className="relative flex items-center justify-center animate-fade-in delay-200" style={{ opacity: 0, animationFillMode: 'forwards' }}>
-                                            <div className="hero-graphic-inner relative w-full max-w-md aspect-square">
-                                                {/* Animated Geometric Graph */}
-                                                <svg viewBox="0 0 400 400" className="w-full h-full" fill="none">
-                                                    {/* Outer rotating ring */}
-                                                    <g className="animate-slow-rotate" style={{ transformOrigin: 'center' }}>
-                                                        <polygon
-                                                            points="200,40 340,120 340,280 200,360 60,280 60,120"
-                                                            stroke="url(#gradient1)"
-                                                            strokeWidth="2"
-                                                            fill="none"
-                                                            opacity="0.6"
-                                                        />
-                                                    </g>
-
-                                                    {/* Inner hexagons */}
-                                                    <g style={{ transformOrigin: 'center' }}>
-                                                        <polygon
-                                                            points="200,80 300,140 300,260 200,320 100,260 100,140"
-                                                            stroke="url(#gradient2)"
-                                                            strokeWidth="2.5"
-                                                            fill="none"
-                                                        />
-                                                        <polygon
-                                                            points="200,120 260,160 260,240 200,280 140,240 140,160"
-                                                            stroke="#1e293b"
-                                                            strokeWidth="3"
-                                                            fill="none"
-                                                        />
-                                                    </g>
-
-                                                    {/* Data points */}
-                                                    <circle cx="200" cy="80" r="6" fill="#6366f1" />
-                                                    <circle cx="300" cy="140" r="5" fill="#8b5cf6" />
-                                                    <circle cx="300" cy="260" r="5" fill="#8b5cf6" />
-                                                    <circle cx="200" cy="320" r="6" fill="#6366f1" />
-                                                    <circle cx="100" cy="260" r="5" fill="#8b5cf6" />
-                                                    <circle cx="100" cy="140" r="5" fill="#8b5cf6" />
-
-                                                    {/* Center point with glow */}
-                                                    <circle cx="200" cy="200" r="12" fill="#4f46e5" filter="url(#glow)" />
-                                                    <circle cx="200" cy="200" r="6" fill="white" />
-
-                                                    {/* Connecting lines representing data flow */}
-                                                    <path d="M200,80 L200,200 M300,140 L200,200 M100,260 L200,200" stroke="#6366f1" strokeWidth="1.5" strokeDasharray="4,4" opacity="0.5" />
-
-                                                    {/* Gradients and filters */}
-                                                    <defs>
-                                                        <linearGradient id="gradient1" x1="0%" y1="0%" x2="100%" y2="100%">
-                                                            <stop offset="0%" stopColor="#6366f1" />
-                                                            <stop offset="100%" stopColor="#8b5cf6" />
-                                                        </linearGradient>
-                                                        <linearGradient id="gradient2" x1="0%" y1="0%" x2="100%" y2="100%">
-                                                            <stop offset="0%" stopColor="#1e293b" />
-                                                            <stop offset="100%" stopColor="#475569" />
-                                                        </linearGradient>
-                                                        <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
-                                                            <feGaussianBlur stdDeviation="4" result="coloredBlur" />
-                                                            <feMerge>
-                                                                <feMergeNode in="coloredBlur" />
-                                                                <feMergeNode in="SourceGraphic" />
-                                                            </feMerge>
-                                                        </filter>
-                                                    </defs>
-                                                </svg>
-
-                                                {/* Floating labels */}
-                                                <div className="absolute top-8 right-8 bg-white/90 backdrop-blur px-3 py-1.5 rounded-lg shadow-lg text-xs font-mono text-slate-700 animate-float" style={{ animationDelay: '0.5s' }}>
-                                                    f(x) = x²
-                                                </div>
-                                                <div className="absolute bottom-12 left-4 bg-white/90 backdrop-blur px-3 py-1.5 rounded-lg shadow-lg text-xs font-medium text-indigo-600 animate-float" style={{ animationDelay: '1s' }}>
-                                                    R² = 0.998
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                            </section>
-
-                            {/* Footer - Fixed at bottom with LiquidGlass effect */}
-                            <footer className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50">
-                                <LiquidGlassCard
-                                    shadowIntensity="md"
-                                    blurIntensity="lg"
-                                    borderRadius="9999px"
-                                    glowIntensity="sm"
-                                    draggable={false}
-                                    className="px-6 py-2.5"
-                                >
-                                    <p className="text-sm text-slate-700 font-medium whitespace-nowrap">
-                                        © 2025 Graphly. Developed by <a href="https://github.com/Tajwarbot" target="_blank" rel="noopener noreferrer" className="text-indigo-600 hover:text-indigo-700 transition-colors font-semibold hover:underline">Ahmad Taki Tajwar</a>
-                                    </p>
-                                </LiquidGlassCard>
-                            </footer>
+                    {/* Centered, straightforward, elegant Hero */}
+                    <div className="relative z-10 max-w-xl w-full text-center space-y-6">
+                        <div className="flex justify-center">
+                            <div className="p-3 bg-white/90 backdrop-blur-xs border border-neutral-300 rounded-2xl shadow-sm inline-flex items-center gap-3">
+                                <LogoIcon size={34} />
+                                <span className="font-bold text-2xl text-neutral-900 tracking-tight font-sans">
+                                    Graphly
+                                </span>
+                            </div>
                         </div>
-                    ) : (
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                            {savedGraphs.map(g => (
-                                <Card key={g.id} className="group hover:shadow-md transition-shadow cursor-pointer relative">
-                                    <div onClick={() => { setCurrentGraph(g); setView('editor'); }} className="p-6">
-                                        <h3 className="font-bold text-lg mb-2">{g.title}</h3>
-                                        <div className="flex items-center justify-between text-slate-500 text-xs mt-4">
-                                            <span className="bg-indigo-50 text-indigo-700 px-2 py-1 rounded-full">{g.datasets?.length || 1} Datasets</span>
-                                            <span>{new Date(g.updatedAt || g.createdAt).toLocaleDateString()}</span>
-                                        </div>
-                                    </div>
-                                    <button
-                                        onClick={(e) => deleteGraph(e, g.id)}
-                                        className="absolute top-3 right-3 p-1.5 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-full opacity-0 group-hover:opacity-100 transition-all"
-                                    >
-                                        <Trash2 size={16} />
-                                    </button>
-                                </Card>
-                            ))}
+
+                        <div className="space-y-2">
+                            <h1 className="text-2xl sm:text-4xl font-bold text-neutral-900 tracking-tight">
+                                Precision Coordinate Plotter
+                            </h1>
+                            <p className="text-sm sm:text-base text-neutral-600 max-w-md mx-auto leading-relaxed">
+                                2D mathematical curves, experimental data regression, and interactive 3D multi-surface visualization.
+                            </p>
                         </div>
-                    )}
+
+                        {/* Three Primary Actions: 2D Plotter, 3D Surface, Scan Data */}
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2">
+                            <button
+                                onClick={() => { setAppMode('2d'); createBlankGraph(); }}
+                                className="p-4 bg-neutral-900 text-white rounded-xl border border-neutral-900 hover:bg-neutral-800 transition-all shadow-sm flex flex-col items-center gap-2 group cursor-pointer"
+                            >
+                                <Plus size={22} className="text-blue-400 group-hover:scale-110 transition-transform" />
+                                <span className="text-xs font-bold uppercase tracking-wider">2D Plotter</span>
+                                <span className="text-[11px] text-neutral-400 font-mono">Data & Equations</span>
+                            </button>
+
+                            <button
+                                onClick={() => { setAppMode('3d'); setView('editor'); }}
+                                className="p-4 bg-white/95 backdrop-blur-xs text-neutral-900 rounded-xl border border-neutral-300 hover:border-neutral-900 hover:bg-neutral-50 transition-all shadow-xs flex flex-col items-center gap-2 group cursor-pointer"
+                            >
+                                <Box size={22} className="text-purple-600 group-hover:scale-110 transition-transform" />
+                                <span className="text-xs font-bold uppercase tracking-wider">3D Surface</span>
+                                <span className="text-[11px] text-neutral-500 font-mono">Multi-Mesh z = f(x,y)</span>
+                            </button>
+
+                            <button
+                                onClick={() => { setAppMode('2d'); setIsImporting(false); setView('scan'); }}
+                                className="p-4 bg-white/95 backdrop-blur-xs text-neutral-900 rounded-xl border border-neutral-300 hover:border-neutral-900 hover:bg-neutral-50 transition-all shadow-xs flex flex-col items-center gap-2 group cursor-pointer"
+                            >
+                                <Camera size={22} className="text-emerald-600 group-hover:scale-110 transition-transform" />
+                                <span className="text-xs font-bold uppercase tracking-wider">Scan & CSV</span>
+                                <span className="text-[11px] text-neutral-500 font-mono">AI OCR Import</span>
+                            </button>
+                        </div>
+
+                        {/* Saved Projects Section */}
+                        {savedGraphs.length > 0 && (
+                            <div className="pt-8 text-left border-t border-neutral-300 w-full">
+                                <div className="flex items-center justify-between mb-3">
+                                    <span className="text-xs font-bold font-mono uppercase text-neutral-600">Saved Projects ({savedGraphs.length})</span>
+                                </div>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 max-h-56 overflow-y-auto pr-1">
+                                    {savedGraphs.map(g => (
+                                        <div 
+                                            key={g.id}
+                                            onClick={() => { setAppMode('2d'); setCurrentGraph(g); setView('editor'); }}
+                                            className="p-3 bg-white/95 backdrop-blur-xs border border-neutral-300 rounded-lg hover:border-neutral-900 transition-all cursor-pointer shadow-2xs flex items-center justify-between group"
+                                        >
+                                            <div className="truncate mr-2">
+                                                <div className="font-semibold text-xs text-neutral-900 truncate">{g.title || 'Untitled Graph'}</div>
+                                                <div className="text-[10px] font-mono text-neutral-500">{g.datasets?.length || 1} dataset(s)</div>
+                                            </div>
+                                            <button
+                                                onClick={(e) => deleteGraph(e, g.id)}
+                                                className="opacity-0 group-hover:opacity-100 p-1 text-neutral-400 hover:text-red-600 transition-opacity cursor-pointer"
+                                                title="Delete graph"
+                                            >
+                                                <Trash2 size={13} />
+                                            </button>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+                    </div>
                 </main>
             )}
 
             {view === 'scan' && (
-                <main className="max-w-4xl mx-auto px-6 h-[calc(100vh-64px)] overflow-hidden flex flex-col justify-center">
-                    {/* Header with animation */}
-                    <div className="text-center mb-10 animate-fade-in-up relative">
-                        <div className="inline-flex items-center justify-center w-16 h-16 bg-gradient-to-br from-indigo-100 to-violet-100 rounded-2xl mb-4">
-                            <Camera className="text-indigo-600" size={28} />
+                <main className="max-w-3xl mx-auto px-4 py-10">
+                    <div className="mb-6 border-b-2 border-black pb-4">
+                        <div className="flex items-center justify-between">
+                            <h1 className="text-2xl font-bold text-black tracking-tight">Import Data</h1>
+                            <Button onClick={() => setShowApiKeyModal(true)} variant="secondary" size="sm" icon={Key}>
+                                API Key
+                            </Button>
                         </div>
-                        <h1 className="text-3xl font-bold text-slate-900 mb-2">Import Data</h1>
-                        <button
-                            onClick={() => setShowApiKeyModal(true)}
-                            className="absolute top-0 right-0 p-2 text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors flex items-center gap-2 text-sm font-medium"
-                        >
-                            <Key size={16} /> <span className="hidden sm:inline">API Key</span>
-                        </button>
-                        <p className="text-slate-500">
-                            {isImporting ? "Add data to your existing graph." : "Create a new graph from external data."}
+                        <p className="text-xs font-mono text-black mt-1">
+                            {isImporting ? "Add external data to active graph" : "Create new graph from datasheet or CSV"}
                         </p>
                     </div>
 
-                    {/* Import Cards with animations */}
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
                         <div
                             onClick={() => fileInputRef.current?.click()}
-                            className="group card-hover bg-white border-2 border-dashed border-slate-200 rounded-2xl h-52 flex flex-col items-center justify-center cursor-pointer hover:border-indigo-400 hover:bg-gradient-to-br hover:from-indigo-50/50 hover:to-violet-50/50 transition-all duration-300 animate-fade-in-up delay-100"
-                            style={{ opacity: 0, animationFillMode: 'forwards' }}
+                            className="border-2 border-black bg-white p-6 h-48 flex flex-col justify-between cursor-pointer hover:bg-black hover:text-white transition-none group"
                         >
-                            {image ? <img src={image.preview} className="h-full object-contain p-4 rounded-xl" /> : (
-                                <>
-                                    <div className="w-14 h-14 bg-slate-100 group-hover:bg-indigo-100 rounded-xl flex items-center justify-center mb-3 transition-colors duration-300">
-                                        <Camera size={28} className="text-slate-400 group-hover:text-indigo-600 transition-colors duration-300" />
-                                    </div>
-                                    <span className="text-sm font-semibold text-slate-700">Scan Image</span>
-                                    <span className="text-xs text-slate-400 mt-1">Upload datasheet or table image</span>
-                                </>
+                            <div className="flex items-center justify-between">
+                                <span className="text-xs font-mono font-bold uppercase">[IMAGE SCAN]</span>
+                                <Camera size={20} />
+                            </div>
+                            {image ? (
+                                <img src={image.preview} className="h-24 object-contain mx-auto" />
+                            ) : (
+                                <div>
+                                    <div className="font-bold text-base mb-1">Datasheet Image</div>
+                                    <div className="text-xs font-mono text-neutral-500 group-hover:text-neutral-300">Upload screenshot or photo of table</div>
+                                </div>
                             )}
                         </div>
 
                         <div
                             onClick={() => setShowCSVModal(true)}
-                            className="group card-hover bg-white border-2 border-dashed border-slate-200 rounded-2xl h-52 flex flex-col items-center justify-center cursor-pointer hover:border-indigo-400 hover:bg-gradient-to-br hover:from-indigo-50/50 hover:to-violet-50/50 transition-all duration-300 animate-fade-in-up delay-200"
-                            style={{ opacity: 0, animationFillMode: 'forwards' }}
+                            className="border-2 border-black bg-white p-6 h-48 flex flex-col justify-between cursor-pointer hover:bg-black hover:text-white transition-none group"
                         >
-                            <div className="w-14 h-14 bg-slate-100 group-hover:bg-indigo-100 rounded-xl flex items-center justify-center mb-3 transition-colors duration-300">
-                                <FileSpreadsheet size={28} className="text-slate-400 group-hover:text-indigo-600 transition-colors duration-300" />
+                            <div className="flex items-center justify-between">
+                                <span className="text-xs font-mono font-bold uppercase">[CSV FILE]</span>
+                                <FileSpreadsheet size={20} />
                             </div>
-                            <span className="text-sm font-semibold text-slate-700">Paste / Upload CSV</span>
-                            <span className="text-xs text-slate-400 mt-1">Import from spreadsheet data</span>
+                            <div>
+                                <div className="font-bold text-base mb-1">Paste / Upload CSV</div>
+                                <div className="text-xs font-mono text-neutral-500 group-hover:text-neutral-300">Raw tabular comma-separated values</div>
+                            </div>
                         </div>
                     </div>
 
@@ -1874,45 +1653,45 @@ export default function App() {
                     }} />
 
                     {image && (
-                        <div className="animate-fade-in-up">
-                            <Button className="w-full" variant="glow" size="lg" onClick={handleScan} disabled={scanStatus === 'scanning'} icon={Zap}>
-                                {scanStatus === 'scanning' ? 'Analyzing with AI...' : 'Generate from Image'}
+                        <div className="mb-6">
+                            <Button className="w-full" variant="primary" size="lg" onClick={handleScan} disabled={scanStatus === 'scanning'} icon={Zap}>
+                                {scanStatus === 'scanning' ? 'Analyzing with Gemini AI...' : 'Process Image with AI'}
                             </Button>
                         </div>
                     )}
 
-                    <div className="mt-8 flex justify-center animate-fade-in-up delay-300" style={{ opacity: 0, animationFillMode: 'forwards' }}>
-                        <button onClick={() => setView(isImporting ? 'editor' : 'dashboard')} className="text-slate-400 hover:text-slate-600 text-sm font-medium transition-colors">
+                    <div className="flex justify-start">
+                        <button onClick={() => setView(isImporting ? 'editor' : 'dashboard')} className="text-xs font-mono text-black border border-black px-3 py-1.5 hover:bg-black hover:text-white transition-none">
                             ← Back to {isImporting ? 'Editor' : 'Dashboard'}
                         </button>
                     </div>
 
-                    {/* CSV Modal with glassmorphism */}
+                    {/* Brutalist CSV Modal */}
                     {showCSVModal && (
-                        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-md animate-fade-in">
-                            <div className="glass-dark bg-white/95 rounded-2xl shadow-2xl p-6 w-full max-w-lg mx-4 animate-scale-in border border-white/50">
-                                <div className="flex items-center gap-3 mb-5">
-                                    <div className="w-10 h-10 bg-indigo-100 rounded-xl flex items-center justify-center">
-                                        <FileSpreadsheet className="text-indigo-600" size={20} />
+                        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+                            <div className="bg-white border-2 border-black p-6 w-full max-w-lg">
+                                <div className="flex items-center justify-between pb-3 mb-4 border-b-2 border-black">
+                                    <div className="flex items-center gap-2">
+                                        <FileSpreadsheet size={18} />
+                                        <h3 className="text-base font-bold text-black">Import CSV Data</h3>
                                     </div>
-                                    <div>
-                                        <h3 className="text-lg font-bold text-slate-900">Import CSV Data</h3>
-                                        <p className="text-xs text-slate-500">Paste your data or upload a file</p>
-                                    </div>
+                                    <button onClick={() => setShowCSVModal(false)} className="p-1 hover:bg-black hover:text-white border border-transparent hover:border-black">
+                                        <X size={16} />
+                                    </button>
                                 </div>
                                 <textarea
-                                    className="w-full h-40 p-4 bg-slate-50 border border-slate-200 rounded-xl text-sm font-mono mb-4 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-400 outline-none resize-none transition-all"
-                                    placeholder="Paste CSV data here (e.g. x,y&#10;1,2&#10;3,4)"
+                                    className="w-full h-40 p-3 bg-white border-2 border-black text-xs font-mono mb-4 outline-none resize-none"
+                                    placeholder="x,y&#10;1,2&#10;3,4"
                                     value={csvText}
                                     onChange={e => setCsvText(e.target.value)}
                                 />
-                                <div className="flex justify-between items-center mb-5 p-3 bg-slate-50 rounded-lg">
-                                    <span className="text-xs text-slate-500 font-medium">Or upload a file</span>
+                                <div className="flex items-center justify-between mb-5 p-2.5 border border-black bg-neutral-50">
+                                    <span className="text-xs font-mono text-black">Upload .csv file:</span>
                                     <input
                                         type="file"
                                         accept=".csv"
                                         ref={csvFileInputRef}
-                                        className="text-xs text-slate-500 file:mr-2 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-indigo-100 file:text-indigo-700 hover:file:bg-indigo-200 file:transition-colors file:cursor-pointer"
+                                        className="text-xs font-mono text-black file:mr-2 file:py-1 file:px-2 file:border file:border-black file:text-xs file:bg-white file:text-black hover:file:bg-black hover:file:text-white file:cursor-pointer"
                                         onChange={(e) => {
                                             const file = e.target.files[0];
                                             if (file) {
@@ -1923,9 +1702,9 @@ export default function App() {
                                         }}
                                     />
                                 </div>
-                                <div className="flex gap-3 justify-end">
+                                <div className="flex gap-2 justify-end">
                                     <Button variant="secondary" size="md" onClick={() => setShowCSVModal(false)}>Cancel</Button>
-                                    <Button variant="primary" size="md" onClick={() => handleCSVImport(parseCSV(csvText))} icon={Check}>Import Data</Button>
+                                    <Button variant="primary" size="md" onClick={() => handleCSVImport(parseCSV(csvText))} icon={Check}>Import CSV</Button>
                                 </div>
                             </div>
                         </div>
@@ -1933,85 +1712,143 @@ export default function App() {
                 </main>
             )}
 
-            {view === 'editor' && currentGraph && (
-                <div className="relative flex h-[calc(100vh-64px)] overflow-hidden">
+            {view === 'editor' && (
+                appMode === '3d' ? (
+                    <ThreeDGraph initialEquation={threeDEquation} />
+                ) : currentGraph ? (
+                <div className="relative flex h-[calc(100vh-56px)] overflow-hidden bg-neutral-50">
+                    <div className="flex-1 relative bg-neutral-50 flex flex-col overflow-hidden border-r border-neutral-200">
+                        {/* Top 2D Function Quick-Add & Preset Bar */}
+                        <div className="p-2.5 bg-white border-b border-neutral-200 flex flex-wrap items-center gap-2.5 shrink-0 z-20 shadow-2xs">
+                            <div className="flex items-center gap-1.5 font-mono font-semibold text-xs bg-neutral-100 text-neutral-800 border border-neutral-200 px-2.5 py-1.5 rounded-md shadow-2xs">
+                                <Calculator size={14} className="text-blue-600" />
+                                <span>f(x) =</span>
+                            </div>
+                            <form onSubmit={handleQuickFunctionSubmit} className="flex-1 min-w-[200px] flex items-center gap-2">
+                                <input
+                                    type="text"
+                                    value={quickFunctionExpr}
+                                    onChange={(e) => setQuickFunctionExpr(e.target.value)}
+                                    placeholder="Plot equation, e.g. sin(x), x^2 - 4, 1/x, cos(x)*x, exp(-x^2)"
+                                    className="flex-1 bg-white border border-neutral-200 px-3 py-1.5 font-mono text-xs text-neutral-900 placeholder:text-neutral-400 focus:outline-none focus:border-neutral-900 focus:ring-1 focus:ring-neutral-900 rounded-md"
+                                />
+                                <button
+                                    type="submit"
+                                    className="bg-neutral-900 text-white border border-neutral-900 px-3.5 py-1.5 font-sans text-xs font-semibold hover:bg-neutral-800 transition-colors flex items-center gap-1.5 rounded-md cursor-pointer shadow-2xs shrink-0"
+                                >
+                                    <Plus size={14} />
+                                    <span>Plot Function</span>
+                                </button>
+                            </form>
+                            
+                            {/* Function Preset Chips */}
+                            <div className="hidden lg:flex items-center gap-1 text-[11px] font-mono text-neutral-500 border-l border-neutral-200 pl-2.5">
+                                <span className="text-[10px] uppercase text-neutral-400 font-sans font-semibold mr-1">Presets:</span>
+                                {FUNCTION_PRESETS.slice(0, 5).map(preset => (
+                                    <button
+                                        key={preset.label}
+                                        type="button"
+                                        onClick={() => addFunctionDataset(preset.expr)}
+                                        className="px-2 py-0.5 rounded bg-neutral-100 hover:bg-neutral-200 text-neutral-700 hover:text-neutral-900 transition-colors cursor-pointer"
+                                    >
+                                        {preset.label}
+                                    </button>
+                                ))}
+                            </div>
 
-                    <div className="flex-1 relative bg-slate-50 flex flex-col overflow-hidden">
-                        <div className="absolute inset-0 bg-[radial-gradient(#e2e8f0_1px,transparent_1px)] [background-size:20px_20px] opacity-50"></div>
+                            <button
+                                onClick={() => setIsSidebarOpen(true)}
+                                className="lg:hidden ml-auto bg-white p-1.5 border border-neutral-200 rounded-md text-neutral-800 hover:bg-neutral-100 transition-colors shadow-xs"
+                                aria-label="Open Sidebar"
+                            >
+                                <Menu size={16} />
+                            </button>
+                        </div>
 
-                        <button
-                            onClick={() => setIsSidebarOpen(true)}
-                            className="lg:hidden absolute top-4 right-4 z-30 bg-white p-2 rounded-full shadow-md border border-slate-200 text-slate-600 hover:text-indigo-600 transition-colors"
-                        >
-                            <Menu size={20} />
-                        </button>
-
-                        <div className="flex-1 p-2 md:p-8 flex flex-col items-center justify-center overflow-hidden relative graph-print-container"
+                        <div 
+                            className="flex-1 p-2 md:p-5 flex flex-col items-center justify-center overflow-hidden relative graph-print-container graph-touch-surface bg-neutral-50"
                             ref={graphContainerRef}
+                            style={{ touchAction: 'none' }}
                             onWheel={handleWheel}
-                            onMouseDown={handleMouseDown} onMouseMove={handleMouseMove} onMouseUp={() => setIsDragging(false)} onMouseLeave={() => setIsDragging(false)}
-                            onTouchStart={handleTouchStart} onTouchMove={handleTouchMove} onTouchEnd={() => setIsDragging(false)}>
-
+                            onPointerDown={handlePointerDown}
+                            onPointerMove={handlePointerMove}
+                            onPointerUp={handlePointerUp}
+                            onPointerCancel={handlePointerUp}
+                            onPointerLeave={(e) => {
+                                handlePointerUp(e);
+                                setCursorCoords(null);
+                            }}
+                        >
                             {/* COMPACT INFO PILL (Top-Left) */}
                             {selectedData && (
-                                <div className="graph-ui-overlay absolute top-2 left-2 z-50 bg-white/95 backdrop-blur border border-slate-300 rounded-full shadow-md px-3 py-1.5 flex items-center gap-3">
+                                <div className="graph-ui-overlay absolute top-3 left-3 z-50 bg-white/95 backdrop-blur-xs border border-neutral-300 rounded-lg shadow-sm px-3 py-1.5 flex items-center gap-3">
                                     <div className="flex items-center gap-2">
-                                        <div className="w-2 h-2 rounded-full" style={{ backgroundColor: selectedData.color || '#6366f1' }}></div>
-                                        <span className="text-[10px] font-bold uppercase text-slate-500 tracking-wider max-w-[80px] truncate">{selectedData.datasetName}</span>
+                                        <div className="w-2.5 h-2.5 rounded-full border border-white shadow-xs" style={{ backgroundColor: selectedData.color || '#2563EB' }}></div>
+                                        <span className="text-xs font-sans font-semibold text-neutral-900 max-w-[130px] truncate">{selectedData.datasetName}</span>
                                     </div>
                                     {selectedData.isTrendline ? (
-                                        <span className="font-mono font-bold text-xs text-slate-800">{selectedData.equation}</span>
+                                        <span className="font-mono font-bold text-xs text-neutral-900">{selectedData.equation}</span>
                                     ) : (
-                                        <div className="flex items-center gap-2 text-xs font-mono border-l border-slate-200 pl-2">
-                                            <span className="text-slate-600">x: {formatNumber(selectedData.x)}</span>
-                                            <span className="text-slate-600">y: {formatNumber(selectedData.y)}</span>
+                                        <div className="flex items-center gap-2 text-xs font-mono border-l border-neutral-200 pl-2 text-neutral-800">
+                                            <span>x: {formatNumber(selectedData.x)}</span>
+                                            <span>y: {formatNumber(selectedData.y)}</span>
                                         </div>
                                     )}
-                                    <button onClick={(e) => { e.stopPropagation(); setSelectedData(null); }} className="text-slate-400 hover:text-slate-600 ml-1">
-                                        <X size={14} />
+                                    <button onClick={(e) => { e.stopPropagation(); setSelectedData(null); }} className="text-neutral-500 hover:text-neutral-900 p-0.5 rounded-md hover:bg-neutral-100 ml-1 cursor-pointer">
+                                        <X size={12} />
                                     </button>
                                 </div>
                             )}
 
                             {!selectedData && (
-                                <div className="graph-ui-overlay absolute top-2 left-2 z-40 bg-white/50 backdrop-blur rounded-full px-3 py-1 text-[10px] text-slate-400 pointer-events-none flex items-center gap-1">
-                                    <Info size={10} /> Click on points for details
+                                <div className="graph-ui-overlay absolute top-3 left-3 z-40 bg-white/90 backdrop-blur-xs border border-neutral-200 rounded-md shadow-xs px-2.5 py-1 text-xs text-neutral-500 pointer-events-none flex items-center gap-1.5">
+                                    <Info size={12} /> Click point for coordinates
                                 </div>
                             )}
 
-                            {/* Zoom Controls Overlay - Enhanced */}
-                            <div className="graph-ui-overlay absolute bottom-6 right-6 z-40 flex flex-col gap-2">
-                                <button onClick={zoomIn} className="p-2.5 bg-white/95 backdrop-blur shadow-lg rounded-xl text-slate-600 hover:text-indigo-600 hover:bg-indigo-50 border border-slate-200 hover:border-indigo-200 transition-all duration-200 hover:scale-105 hover:shadow-xl" title="Zoom In">
-                                    <Plus size={18} />
+                            {/* LIVE CURSOR COORDINATES HUD */}
+                            {cursorCoords && (
+                                <div className="graph-ui-overlay absolute top-3 right-3 z-40 bg-white/95 backdrop-blur-xs border border-neutral-200 rounded-md shadow-xs px-2.5 py-1 font-mono text-[11px] text-neutral-700 pointer-events-none flex items-center gap-2">
+                                    <span className="text-neutral-400 font-sans text-[10px] uppercase font-bold tracking-wider">Coords:</span>
+                                    <span>x: {formatNumber(cursorCoords.x)}</span>
+                                    <span>y: {formatNumber(cursorCoords.y)}</span>
+                                </div>
+                            )}
+
+                            {/* Zoom Controls Overlay */}
+                            <div className="graph-ui-overlay absolute bottom-4 right-4 z-40 flex flex-col gap-1 bg-white/95 backdrop-blur-xs border border-neutral-200 rounded-lg shadow-sm p-1">
+                                <button onClick={zoomIn} className="p-1.5 text-neutral-700 hover:text-neutral-900 hover:bg-neutral-100 rounded-md transition-colors cursor-pointer" title="Zoom In">
+                                    <Plus size={16} />
                                 </button>
-                                <button onClick={zoomOut} className="p-2.5 bg-white/95 backdrop-blur shadow-lg rounded-xl text-slate-600 hover:text-indigo-600 hover:bg-indigo-50 border border-slate-200 hover:border-indigo-200 transition-all duration-200 hover:scale-105 hover:shadow-xl" title="Zoom Out">
-                                    <Minus size={18} />
+                                <button onClick={zoomOut} className="p-1.5 text-neutral-700 hover:text-neutral-900 hover:bg-neutral-100 rounded-md transition-colors cursor-pointer" title="Zoom Out">
+                                    <Minus size={16} />
                                 </button>
-                                <button onClick={resetView} className="p-2.5 bg-white/95 backdrop-blur shadow-lg rounded-xl text-slate-600 hover:text-indigo-600 hover:bg-indigo-50 border border-slate-200 hover:border-indigo-200 transition-all duration-200 hover:scale-105 hover:shadow-xl" title="Reset View">
-                                    <RotateCcw size={18} />
+                                <button onClick={resetView} className="p-1.5 text-neutral-700 hover:text-neutral-900 hover:bg-neutral-100 rounded-md transition-colors cursor-pointer" title="Reset View">
+                                    <RotateCcw size={16} />
                                 </button>
                             </div>
 
-                            <div className={`w-full flex-1 bg-white rounded-xl md:rounded-2xl shadow-xl border border-slate-200 p-2 md:p-4 relative ${isDragging ? 'cursor-grabbing' : 'cursor-default'}`}
+                            <div 
+                                className={`w-full flex-1 bg-white border border-neutral-200 rounded-xl shadow-xs p-2 md:p-4 relative overflow-hidden ${isDragging ? 'cursor-grabbing' : 'cursor-default'}`}
                                 onClick={(e) => e.stopPropagation()}
                             >
-                                <div className="absolute top-2 left-1/2 transform -translate-x-1/2 font-bold text-slate-700 pointer-events-none z-10 text-sm md:text-base text-center w-3/4 truncate">
+                                <div className="absolute top-2 left-1/2 transform -translate-x-1/2 font-semibold text-neutral-800 pointer-events-none z-10 text-xs md:text-sm text-center w-3/4 truncate font-sans">
                                     {currentGraph.title}
                                 </div>
 
                                 <ResponsiveContainer width="100%" height="100%">
                                     <ComposedChart
-                                        margin={{ top: 50, right: 10, bottom: 20, left: 10 }}
+                                        margin={{ top: 40, right: 15, bottom: 20, left: 15 }}
                                         onDoubleClick={handleChartDoubleClick}
                                         onClick={handleChartClick}
                                         style={{ outline: 'none' }}
                                     >
                                         {currentGraph.globalConfig?.showGrid !== false && (
-                                            <CartesianGrid strokeDasharray="" stroke="#e2e8f0" />
+                                            <CartesianGrid stroke="#E4E4E7" strokeDasharray="3 3" />
                                         )}
 
-                                        <ReferenceLine x={0} stroke="#94a3b8" strokeWidth={2} />
-                                        <ReferenceLine y={0} stroke="#94a3b8" strokeWidth={2} />
+                                        <ReferenceLine x={0} stroke="#27272A" strokeWidth={1.5} />
+                                        <ReferenceLine y={0} stroke="#27272A" strokeWidth={1.5} />
 
                                         {currentGraph.annotations && currentGraph.annotations.map(note => {
                                             const xVal = parseFloat(note.x);
@@ -2019,7 +1856,7 @@ export default function App() {
                                             if (isNaN(xVal) || isNaN(yVal)) return null;
                                             return (
                                                 <ReferenceDot key={note.id} x={xVal} y={yVal} r={0}>
-                                                    <Label value={note.text} position="top" fill="#374151" fontSize={12} fontWeight="bold" />
+                                                    <Label value={note.text} position="top" fill="#18181B" fontSize={11} fontWeight="bold" />
                                                 </ReferenceDot>
                                             );
                                         })}
@@ -2029,18 +1866,38 @@ export default function App() {
                                                 x={selectedData.x}
                                                 y={selectedData.y}
                                                 r={8}
-                                                fill={selectedData.color}
-                                                stroke="white"
-                                                strokeWidth={3}
+                                                fill={selectedData.color || '#2563EB'}
+                                                stroke="#FFFFFF"
+                                                strokeWidth={2.5}
                                                 isFront={true}
                                             />
                                         )}
 
-                                        <XAxis type="number" dataKey="x" domain={currentDomain.x} ticks={xTicks} tickFormatter={formatNumber} allowDataOverflow tick={{ fontSize: 10, fill: '#64748b' }}>
-                                            <Label value={currentGraph.globalConfig?.xAxisLabel || "X Axis"} offset={-10} position="insideBottom" style={{ fontSize: '10px', fill: '#94a3b8', fontWeight: 600 }} />
+                                        <XAxis 
+                                            type="number" 
+                                            dataKey="x" 
+                                            domain={currentDomain.x} 
+                                            ticks={xTicks} 
+                                            tickFormatter={formatNumber} 
+                                            allowDataOverflow 
+                                            tick={{ fontSize: 11, fill: '#52525B', fontFamily: 'JetBrains Mono, monospace' }}
+                                            axisLine={{ stroke: '#27272A', strokeWidth: 1.5 }}
+                                            tickLine={{ stroke: '#A1A1AA' }}
+                                        >
+                                            <Label value={currentGraph.globalConfig?.xAxisLabel || "X Axis"} offset={-10} position="insideBottom" style={{ fontSize: '11px', fill: '#27272A', fontWeight: 600, fontFamily: 'Inter, sans-serif' }} />
                                         </XAxis>
-                                        <YAxis type="number" domain={currentDomain.y} ticks={yTicks} tickFormatter={formatNumber} allowDataOverflow tick={{ fontSize: 10, fill: '#64748b' }}>
-                                            <Label value={currentGraph.globalConfig?.yAxisLabel || "Y Axis"} angle={-90} offset={10} position="insideLeft" style={{ fontSize: '10px', fill: '#94a3b8', fontWeight: 600 }} />
+                                        <YAxis 
+                                            type="number" 
+                                            dataKey="y"
+                                            domain={currentDomain.y} 
+                                            ticks={yTicks} 
+                                            tickFormatter={formatNumber} 
+                                            allowDataOverflow 
+                                            tick={{ fontSize: 11, fill: '#52525B', fontFamily: 'JetBrains Mono, monospace' }}
+                                            axisLine={{ stroke: '#27272A', strokeWidth: 1.5 }}
+                                            tickLine={{ stroke: '#A1A1AA' }}
+                                        >
+                                            <Label value={currentGraph.globalConfig?.yAxisLabel || "Y Axis"} angle={-90} offset={10} position="insideLeft" style={{ fontSize: '11px', fill: '#27272A', fontWeight: 600, fontFamily: 'Inter, sans-serif' }} />
                                         </YAxis>
 
                                         {visibleDatasets.map(ds => (
@@ -2050,12 +1907,13 @@ export default function App() {
                                                         key={`func-${ds.id}`}
                                                         data={ds.points}
                                                         dataKey="y"
-                                                        stroke={ds.color}
-                                                        strokeWidth={3}
+                                                        stroke={ds.color || '#2563EB'}
+                                                        strokeWidth={2.5}
                                                         dot={false}
+                                                        connectNulls={false}
                                                         isAnimationActive={false}
                                                         type="monotone"
-                                                        activeDot={{ r: 6, onClick: (e, p) => handlePointClick(p, e, ds) }}
+                                                        activeDot={{ r: 5, stroke: '#FFFFFF', strokeWidth: 2, onClick: (e, p) => handlePointClick(p, e, ds) }}
                                                         onClick={(e, p) => handlePointClick(p, e, ds, 'function')}
                                                     />
                                                 )}
@@ -2065,9 +1923,9 @@ export default function App() {
                                                         key={`trend-${ds.id}`}
                                                         data={ds.trendData}
                                                         dataKey="y"
-                                                        stroke={ds.config.trendlineColor || '#ef4444'}
-                                                        strokeWidth={3}
-                                                        strokeDasharray="0"
+                                                        stroke={ds.config.trendlineColor || ds.color || '#DC2626'}
+                                                        strokeWidth={2}
+                                                        strokeDasharray="4 4"
                                                         dot={false}
                                                         activeDot={false}
                                                         isAnimationActive={false}
@@ -2078,92 +1936,76 @@ export default function App() {
                                                 )}
 
                                                 {ds.config.type === 'area' && (
-                                                    <>
-                                                        <defs>
-                                                            <linearGradient id={`grad-${ds.id}`} x1="0" y1="0" x2="0" y2="1">
-                                                                <stop offset="5%" stopColor={ds.color} stopOpacity={0.3} />
-                                                                <stop offset="95%" stopColor={ds.color} stopOpacity={0} />
-                                                            </linearGradient>
-                                                        </defs>
-                                                        <Area
-                                                            key={`area-${ds.id}`}
-                                                            data={ds.points}
-                                                            dataKey="y"
-                                                            stroke={ds.color}
-                                                            fill={`url(#grad-${ds.id})`}
-                                                            strokeWidth={2}
-                                                            activeDot={{ r: 6, onClick: (e, p) => handlePointClick(p, e, ds) }}
-                                                            isAnimationActive={false}
-                                                            type="monotone"
-                                                            dot={{ r: 4, strokeWidth: 0, fill: ds.color, onClick: (p, e) => handlePointClick(p, e, ds), cursor: 'pointer' }}
-                                                        >
-                                                            {currentGraph.globalConfig?.showLabels && (
-                                                                <LabelList dataKey="y" position="top" content={(props) => {
-                                                                    const { x, y, value, payload, index } = props;
-                                                                    const point = payload || (ds.points && ds.points[index]);
-                                                                    if (!point) return null;
-                                                                    const displayX = point.x !== undefined ? point.x : (point.payload?.x ?? index);
-                                                                    return (
-                                                                        <text x={x} y={y - 12} fill={ds.color} fontSize={10} textAnchor="middle" fontWeight="bold">
-                                                                            ({formatNumber(displayX)}, {formatNumber(value)})
-                                                                        </text>
-                                                                    );
-                                                                }} />
-                                                            )}
-                                                        </Area>
-                                                    </>
+                                                    <Area
+                                                        key={`area-${ds.id}`}
+                                                        data={ds.points}
+                                                        dataKey="y"
+                                                        stroke={ds.color || '#2563EB'}
+                                                        fill={ds.color || '#2563EB'}
+                                                        fillOpacity={0.15}
+                                                        strokeWidth={2}
+                                                        isAnimationActive={false}
+                                                        type="monotone"
+                                                    />
                                                 )}
+
                                                 {ds.config.type === 'line' && (
                                                     <Line
                                                         key={`line-${ds.id}`}
                                                         data={ds.points}
                                                         dataKey="y"
-                                                        stroke={ds.color}
+                                                        stroke={ds.color || '#2563EB'}
                                                         strokeWidth={2}
+                                                        dot={{ r: 4, fill: ds.color || '#2563EB', stroke: '#FFFFFF', strokeWidth: 1.5 }}
                                                         isAnimationActive={false}
                                                         type="monotone"
-                                                        activeDot={{ r: 6, onClick: (e, p) => handlePointClick(p, e, ds) }}
-                                                        dot={{ r: 4, stroke: 'white', strokeWidth: 2, fill: ds.color, onClick: (p, e) => handlePointClick(p, e, ds), cursor: 'pointer' }}
-                                                    >
-                                                        {currentGraph.globalConfig?.showLabels && (
-                                                            <LabelList dataKey="y" position="top" content={(props) => {
-                                                                const { x, y, value, payload, index } = props;
-                                                                const point = payload || (ds.points && ds.points[index]);
-                                                                if (!point) return null;
-                                                                const displayX = point.x !== undefined ? point.x : (point.payload?.x ?? index);
-                                                                return (
-                                                                    <text x={x} y={y - 12} fill={ds.color} fontSize={10} textAnchor="middle" fontWeight="bold">
-                                                                        ({formatNumber(displayX)}, {formatNumber(value)})
-                                                                    </text>
-                                                                );
-                                                            }} />
-                                                        )}
-                                                    </Line>
+                                                        activeDot={{ r: 6, stroke: '#FFFFFF', strokeWidth: 2, onClick: (e, p) => handlePointClick(p, e, ds) }}
+                                                        onClick={(e, p) => handlePointClick(p, e, ds)}
+                                                    />
                                                 )}
+
                                                 {ds.config.type === 'scatter' && (
                                                     <Scatter
                                                         key={`scatter-${ds.id}`}
                                                         data={ds.points}
                                                         name={ds.name}
                                                         dataKey="y"
-                                                        fill={ds.color}
+                                                        fill={ds.color || '#2563EB'}
                                                         isAnimationActive={false}
-                                                        onClick={(p, i, e) => handlePointClick(p, e, ds)}
+                                                        onClick={(p, e) => handlePointClick(p, e, ds)}
                                                         cursor="pointer"
-                                                        activeDot={false}
+                                                        shape={(props) => {
+                                                            const { cx, cy } = props;
+                                                            if (typeof cx !== 'number' || typeof cy !== 'number' || isNaN(cx) || isNaN(cy)) return null;
+                                                            return (
+                                                                <circle
+                                                                    cx={cx}
+                                                                    cy={cy}
+                                                                    r={6}
+                                                                    fill={ds.color || '#2563EB'}
+                                                                    stroke="#FFFFFF"
+                                                                    strokeWidth={1.5}
+                                                                />
+                                                            );
+                                                        }}
                                                     >
                                                         {currentGraph.globalConfig?.showLabels && (
-                                                            <LabelList dataKey="y" position="top" content={(props) => {
-                                                                const { x, y, value, payload, index } = props;
-                                                                const point = payload || (ds.points && ds.points[index]);
-                                                                if (!point) return null;
-                                                                const displayX = point.x !== undefined ? point.x : (point.payload?.x ?? index);
-                                                                return (
-                                                                    <text x={x} y={y - 12} fill={ds.color} fontSize={10} textAnchor="middle" fontWeight="bold">
-                                                                        ({formatNumber(displayX)}, {formatNumber(value)})
-                                                                    </text>
-                                                                );
-                                                            }} />
+                                                            <LabelList
+                                                                dataKey="y"
+                                                                position="top"
+                                                                offset={10}
+                                                                content={(props) => {
+                                                                    const { x, y, value, index } = props;
+                                                                    const point = ds.points && ds.points[index];
+                                                                    if (!point) return null;
+                                                                    const displayX = point.x !== undefined ? point.x : index;
+                                                                    return (
+                                                                        <text x={x} y={y - 10} fill="#000000" fontSize={10} textAnchor="middle" fontWeight="bold" fontFamily="JetBrains Mono, monospace">
+                                                                            ({formatNumber(displayX)}, {formatNumber(value)})
+                                                                        </text>
+                                                                    );
+                                                                }}
+                                                            />
                                                         )}
                                                     </Scatter>
                                                 )}
@@ -2177,96 +2019,91 @@ export default function App() {
 
                     {isSidebarOpen && (
                         <div
-                            className="fixed inset-0 bg-black/20 z-40 lg:hidden"
+                            className="fixed inset-0 bg-black/40 z-40 lg:hidden"
                             onClick={() => setIsSidebarOpen(false)}
                         />
                     )}
 
+                    {/* Refined Minimalist Sidebar */}
                     <div className={`
-               fixed inset-y-0 right-0 z-50 w-80 bg-white shadow-2xl transform transition-transform duration-300 ease-in-out flex flex-col
-               lg:relative lg:translate-x-0 lg:w-96 lg:shadow-xl lg:z-auto lg:h-full lg:border-l lg:border-slate-200
-               xl:relative xl:translate-x-0 xl:w-96 xl:shadow-xl xl:z-auto xl:h-full xl:border-l xl:border-slate-200
-               ${isSidebarOpen ? 'translate-x-0' : 'translate-x-full'}
-            `}>
-
+                        fixed inset-y-0 right-0 z-50 w-76 sm:w-80 bg-white border-l border-neutral-300 flex flex-col shadow-xl
+                        lg:relative lg:translate-x-0 lg:w-80 lg:z-auto lg:h-full lg:shadow-none
+                        xl:relative xl:translate-x-0 xl:w-80 xl:z-auto xl:h-full
+                        ${isSidebarOpen ? 'translate-x-0' : 'translate-x-full'}
+                    `}>
                         <button
                             onClick={() => setIsSidebarOpen(false)}
-                            className="lg:hidden xl:hidden absolute top-3 right-3 p-1 text-slate-400 hover:text-slate-600 z-50"
+                            className="lg:hidden xl:hidden absolute top-2.5 right-2.5 p-1 rounded-md border border-neutral-300 text-neutral-600 hover:bg-neutral-100 z-50 cursor-pointer"
                         >
-                            <X size={20} />
+                            <X size={18} />
                         </button>
 
-                        <div className="flex border-b border-slate-100 shrink-0 pt-2 lg:pt-0 bg-slate-50/50">
+                        <div className="flex border-b border-neutral-300 shrink-0 bg-neutral-100/60 p-1.5 gap-1.5">
                             <button
                                 onClick={() => setShowSettings(false)}
-                                className={`flex-1 py-3.5 text-sm font-semibold transition-all duration-300 relative ${!showSettings ? 'text-indigo-600 bg-white' : 'text-slate-500 hover:text-slate-700 hover:bg-white/50'}`}
+                                className={`flex-1 py-1.5 rounded-md text-xs font-semibold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${!showSettings ? 'bg-white text-neutral-900 shadow-2xs border border-neutral-300 font-bold' : 'text-neutral-600 hover:text-neutral-900 border border-transparent'}`}
                             >
-                                <Layout size={14} className="inline mr-2" /> Datasets
-                                {!showSettings && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-indigo-500 to-violet-500"></div>}
+                                <Layout size={13} /> Datasets
                             </button>
                             <button
                                 onClick={() => setShowSettings(true)}
-                                className={`flex-1 py-3.5 text-sm font-semibold transition-all duration-300 relative ${showSettings ? 'text-indigo-600 bg-white' : 'text-slate-500 hover:text-slate-700 hover:bg-white/50'}`}
+                                className={`flex-1 py-1.5 rounded-md text-xs font-semibold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${showSettings ? 'bg-white text-neutral-900 shadow-2xs border border-neutral-300 font-bold' : 'text-neutral-600 hover:text-neutral-900 border border-transparent'}`}
                             >
-                                <Settings size={14} className="inline mr-2" /> Graph Settings
-                                {showSettings && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-indigo-500 to-violet-500"></div>}
+                                <Settings size={13} /> Graph Settings
                             </button>
                         </div>
 
                         {showSettings ? (
-                            <div className="flex-1 p-4 space-y-6 overflow-y-auto">
-                                <div className="bg-indigo-50/50 p-4 rounded-xl border border-indigo-100">
+                            <div className="flex-1 p-4 space-y-5 overflow-y-auto">
+                                <div className="border border-neutral-200 rounded-lg p-3 bg-white shadow-2xs">
                                     <label className="flex items-center justify-between cursor-pointer">
-                                        <div className="flex items-center gap-2">
-                                            <div className="w-8 h-8 bg-indigo-100 rounded-lg flex items-center justify-center text-indigo-600">
-                                                <Eye size={16} />
-                                            </div>
-                                            <span className="text-sm font-bold text-slate-700">Annotate All Points</span>
-                                        </div>
+                                        <span className="text-xs font-semibold text-neutral-800 flex items-center gap-1.5">
+                                            <Eye size={14} className="text-neutral-500" /> Annotate All Points
+                                        </span>
                                         <input
                                             type="checkbox"
                                             checked={currentGraph.globalConfig?.showLabels === true}
                                             onChange={e => setCurrentGraph({ ...currentGraph, globalConfig: { ...currentGraph.globalConfig, showLabels: e.target.checked } })}
-                                            className="w-5 h-5 rounded text-indigo-600 focus:ring-indigo-500 border-slate-300 transition-all cursor-pointer"
+                                            className="w-4 h-4 rounded border border-neutral-300 text-neutral-900 focus:ring-0 cursor-pointer"
                                         />
                                     </label>
                                 </div>
 
                                 <div>
-                                    <label className="text-xs font-bold text-slate-400 uppercase mb-2 block">Graph Title</label>
+                                    <label className="text-xs font-semibold text-neutral-700 uppercase tracking-wider mb-1.5 block">Graph Title</label>
                                     <input
-                                        className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-indigo-100 focus:border-indigo-400 transition-all"
+                                        className="w-full p-2 bg-white border border-neutral-200 rounded-lg text-xs font-sans text-neutral-900 outline-none focus:border-neutral-900 focus:ring-1 focus:ring-neutral-900"
                                         value={currentGraph.title}
                                         onChange={e => setCurrentGraph({ ...currentGraph, title: e.target.value })}
-                                        placeholder="Enter graph title..."
+                                        placeholder="Graph Title"
                                     />
                                 </div>
 
-                                <div className="grid grid-cols-2 gap-4">
+                                <div className="grid grid-cols-2 gap-3">
                                     <div>
-                                        <label className="text-xs font-bold text-slate-400 uppercase mb-2 block">X Axis Label</label>
+                                        <label className="text-xs font-semibold text-neutral-700 uppercase tracking-wider mb-1.5 block">X Axis Label</label>
                                         <input
-                                            className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-indigo-100 focus:border-indigo-400 transition-all"
+                                            className="w-full p-2 bg-white border border-neutral-200 rounded-lg text-xs font-sans text-neutral-900 outline-none focus:border-neutral-900 focus:ring-1 focus:ring-neutral-900"
                                             value={currentGraph.globalConfig?.xAxisLabel || ''}
                                             onChange={e => setCurrentGraph({ ...currentGraph, globalConfig: { ...currentGraph.globalConfig, xAxisLabel: e.target.value } })}
-                                            placeholder="e.g. Time (s)"
+                                            placeholder="X"
                                         />
                                     </div>
                                     <div>
-                                        <label className="text-xs font-bold text-slate-400 uppercase mb-2 block">Y Axis Label</label>
+                                        <label className="text-xs font-semibold text-neutral-700 uppercase tracking-wider mb-1.5 block">Y Axis Label</label>
                                         <input
-                                            className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-indigo-100 focus:border-indigo-400 transition-all"
+                                            className="w-full p-2 bg-white border border-neutral-200 rounded-lg text-xs font-sans text-neutral-900 outline-none focus:border-neutral-900 focus:ring-1 focus:ring-neutral-900"
                                             value={currentGraph.globalConfig?.yAxisLabel || ''}
                                             onChange={e => setCurrentGraph({ ...currentGraph, globalConfig: { ...currentGraph.globalConfig, yAxisLabel: e.target.value } })}
-                                            placeholder="e.g. Velocity (m/s)"
+                                            placeholder="Y"
                                         />
                                     </div>
                                 </div>
 
-                                <div className="pt-4 border-t border-slate-100">
-                                    <label className="text-xs font-bold text-slate-400 uppercase mb-2 block">Aspect Ratio</label>
+                                <div className="pt-3 border-t border-neutral-200">
+                                    <label className="text-xs font-semibold text-neutral-700 uppercase tracking-wider mb-1.5 block">Aspect Ratio</label>
                                     <select
-                                        className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-indigo-100 focus:border-indigo-400"
+                                        className="w-full p-2 bg-white border border-neutral-200 rounded-lg text-xs font-sans text-neutral-900 outline-none focus:border-neutral-900"
                                         value={currentGraph.globalConfig?.aspectRatio || 'auto'}
                                         onChange={e => setCurrentGraph({ ...currentGraph, globalConfig: { ...currentGraph.globalConfig, aspectRatio: e.target.value } })}
                                     >
@@ -2275,27 +2112,145 @@ export default function App() {
                                     </select>
                                 </div>
 
-                                <div className="pt-4 border-t border-slate-100">
+                                <div className="pt-3 border-t border-neutral-200">
+                                    <div className="flex items-center justify-between mb-2">
+                                        <label className="text-xs font-semibold text-neutral-700 uppercase tracking-wider flex items-center gap-1.5">
+                                            <Sliders size={13} className="text-blue-600" /> Viewport Bounds
+                                        </label>
+                                        <span className="text-[10px] font-mono text-neutral-400">Cartesian</span>
+                                    </div>
+                                    <div className="p-3 bg-neutral-50/80 border border-neutral-200 rounded-lg space-y-3">
+                                        <div>
+                                            <label className="text-[11px] font-medium text-neutral-600 block mb-1">X Domain [Min, Max]</label>
+                                            <div className="grid grid-cols-2 gap-2">
+                                                <div className="flex items-center bg-white border border-neutral-200 rounded-md px-2 py-1 shadow-2xs">
+                                                    <span className="text-[10px] text-neutral-400 font-mono mr-1">min</span>
+                                                    <input
+                                                        type="number"
+                                                        step="any"
+                                                        value={Number(currentDomain.x[0]).toFixed(2)}
+                                                        onChange={(e) => {
+                                                            const val = parseFloat(e.target.value);
+                                                            if (!isNaN(val)) {
+                                                                setZoomDomain(prev => ({
+                                                                    x: [val, prev.x[1] !== 'auto' ? prev.x[1] : currentDomain.x[1]],
+                                                                    y: prev.y[0] !== 'auto' ? prev.y : currentDomain.y
+                                                                }));
+                                                            }
+                                                        }}
+                                                        className="w-full text-xs font-mono outline-none text-neutral-900 bg-transparent"
+                                                    />
+                                                </div>
+                                                <div className="flex items-center bg-white border border-neutral-200 rounded-md px-2 py-1 shadow-2xs">
+                                                    <span className="text-[10px] text-neutral-400 font-mono mr-1">max</span>
+                                                    <input
+                                                        type="number"
+                                                        step="any"
+                                                        value={Number(currentDomain.x[1]).toFixed(2)}
+                                                        onChange={(e) => {
+                                                            const val = parseFloat(e.target.value);
+                                                            if (!isNaN(val)) {
+                                                                setZoomDomain(prev => ({
+                                                                    x: [prev.x[0] !== 'auto' ? prev.x[0] : currentDomain.x[0], val],
+                                                                    y: prev.y[0] !== 'auto' ? prev.y : currentDomain.y
+                                                                }));
+                                                            }
+                                                        }}
+                                                        className="w-full text-xs font-mono outline-none text-neutral-900 bg-transparent"
+                                                    />
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <div>
+                                            <label className="text-[11px] font-medium text-neutral-600 block mb-1">Y Range [Min, Max]</label>
+                                            <div className="grid grid-cols-2 gap-2">
+                                                <div className="flex items-center bg-white border border-neutral-200 rounded-md px-2 py-1 shadow-2xs">
+                                                    <span className="text-[10px] text-neutral-400 font-mono mr-1">min</span>
+                                                    <input
+                                                        type="number"
+                                                        step="any"
+                                                        value={Number(currentDomain.y[0]).toFixed(2)}
+                                                        onChange={(e) => {
+                                                            const val = parseFloat(e.target.value);
+                                                            if (!isNaN(val)) {
+                                                                setZoomDomain(prev => ({
+                                                                    x: prev.x[0] !== 'auto' ? prev.x : currentDomain.x,
+                                                                    y: [val, prev.y[1] !== 'auto' ? prev.y[1] : currentDomain.y[1]]
+                                                                }));
+                                                            }
+                                                        }}
+                                                        className="w-full text-xs font-mono outline-none text-neutral-900 bg-transparent"
+                                                    />
+                                                </div>
+                                                <div className="flex items-center bg-white border border-neutral-200 rounded-md px-2 py-1 shadow-2xs">
+                                                    <span className="text-[10px] text-neutral-400 font-mono mr-1">max</span>
+                                                    <input
+                                                        type="number"
+                                                        step="any"
+                                                        value={Number(currentDomain.y[1]).toFixed(2)}
+                                                        onChange={(e) => {
+                                                            const val = parseFloat(e.target.value);
+                                                            if (!isNaN(val)) {
+                                                                setZoomDomain(prev => ({
+                                                                    x: prev.x[0] !== 'auto' ? prev.x : currentDomain.x,
+                                                                    y: [prev.y[0] !== 'auto' ? prev.y[0] : currentDomain.y[0], val]
+                                                                }));
+                                                            }
+                                                        }}
+                                                        className="w-full text-xs font-mono outline-none text-neutral-900 bg-transparent"
+                                                    />
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <div className="grid grid-cols-3 gap-1.5 pt-1">
+                                            <button
+                                                type="button"
+                                                onClick={() => setZoomDomain({ x: [-10, 10], y: [-10, 10] })}
+                                                className="py-1 px-2 text-[10px] font-mono font-medium bg-white hover:bg-neutral-100 text-neutral-700 border border-neutral-200 rounded transition-colors cursor-pointer shadow-2xs text-center"
+                                            >
+                                                [-10, 10]
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => setZoomDomain({ x: [-6.28, 6.28], y: [-3.5, 3.5] })}
+                                                className="py-1 px-2 text-[10px] font-mono font-medium bg-white hover:bg-neutral-100 text-neutral-700 border border-neutral-200 rounded transition-colors cursor-pointer shadow-2xs text-center"
+                                            >
+                                                [-2π, 2π]
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={resetView}
+                                                className="py-1 px-2 text-[10px] font-mono font-medium bg-white hover:bg-neutral-100 text-neutral-700 border border-neutral-200 rounded transition-colors cursor-pointer shadow-2xs text-center"
+                                            >
+                                                Fit Data
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className="pt-3 border-t border-neutral-200">
                                     <label className="flex items-center gap-2 cursor-pointer">
                                         <input
                                             type="checkbox"
                                             checked={currentGraph.globalConfig?.showGrid !== false}
                                             onChange={e => setCurrentGraph({ ...currentGraph, globalConfig: { ...currentGraph.globalConfig, showGrid: e.target.checked } })}
-                                            className="rounded text-indigo-600 focus:ring-indigo-500 border-gray-300"
+                                            className="rounded border border-neutral-300 text-neutral-900 cursor-pointer"
                                         />
-                                        <span className="text-sm text-slate-700">Show Grid Lines</span>
+                                        <span className="text-xs font-semibold text-neutral-800">Show Grid Lines</span>
                                     </label>
                                 </div>
 
                                 {currentGraph.globalConfig?.showGrid !== false && (
-                                    <div className="space-y-3 mt-3 pl-4 border-l-2 border-indigo-100">
+                                    <div className="space-y-3 pl-3 border-l-2 border-neutral-200">
                                         <div>
-                                            <label className="text-xs text-slate-500 block mb-1">X Grid Interval</label>
+                                            <label className="text-xs font-medium text-neutral-600 block mb-1">X Grid Interval</label>
                                             <input
                                                 type="number"
                                                 step="any"
                                                 placeholder="Auto"
-                                                className="w-full p-2 text-sm bg-slate-50 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-100"
+                                                className="w-full p-2 text-xs bg-white border border-neutral-200 rounded-md font-mono outline-none focus:border-neutral-900"
                                                 value={currentGraph.globalConfig?.xGridInterval || ''}
                                                 onChange={e => setCurrentGraph({
                                                     ...currentGraph,
@@ -2307,12 +2262,12 @@ export default function App() {
                                             />
                                         </div>
                                         <div>
-                                            <label className="text-xs text-slate-500 block mb-1">Y Grid Interval</label>
+                                            <label className="text-xs font-medium text-neutral-600 block mb-1">Y Grid Interval</label>
                                             <input
                                                 type="number"
                                                 step="any"
                                                 placeholder="Auto"
-                                                className="w-full p-2 text-sm bg-slate-50 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-100"
+                                                className="w-full p-2 text-xs bg-white border border-neutral-200 rounded-md font-mono outline-none focus:border-neutral-900"
                                                 value={currentGraph.globalConfig?.yGridInterval || ''}
                                                 onChange={e => setCurrentGraph({
                                                     ...currentGraph,
@@ -2326,13 +2281,15 @@ export default function App() {
                                     </div>
                                 )}
 
-                                <div className="pt-4 border-t border-slate-100 pb-20 lg:pb-0">
-                                    <label className="text-xs font-bold text-slate-400 uppercase mb-3 block flex items-center gap-1"><StickyNote size={12} /> Annotations</label>
+                                <div className="pt-3 border-t border-neutral-200 pb-12">
+                                    <label className="text-xs font-semibold text-neutral-700 uppercase tracking-wider mb-2 block flex items-center gap-1.5">
+                                        <StickyNote size={13} className="text-neutral-500" /> Annotations
+                                    </label>
                                     <div className="space-y-2">
                                         {currentGraph.annotations?.map((note, idx) => (
-                                            <div key={note.id} className="flex gap-2 items-center bg-slate-50 p-2 rounded-md border border-slate-100">
+                                            <div key={note.id} className="flex gap-1.5 items-center border border-neutral-200 rounded-md p-1.5 bg-white shadow-2xs">
                                                 <input
-                                                    className="w-12 p-1 text-xs bg-white border rounded text-center outline-none"
+                                                    className="w-12 p-1 text-xs bg-neutral-50 border border-neutral-200 rounded font-mono text-center outline-none"
                                                     value={note.x}
                                                     onChange={e => {
                                                         const newNotes = [...currentGraph.annotations];
@@ -2341,7 +2298,7 @@ export default function App() {
                                                     }}
                                                 />
                                                 <input
-                                                    className="w-12 p-1 text-xs bg-white border rounded text-center outline-none"
+                                                    className="w-12 p-1 text-xs bg-neutral-50 border border-neutral-200 rounded font-mono text-center outline-none"
                                                     value={note.y}
                                                     onChange={e => {
                                                         const newNotes = [...currentGraph.annotations];
@@ -2350,7 +2307,7 @@ export default function App() {
                                                     }}
                                                 />
                                                 <input
-                                                    className="flex-1 p-1 text-xs bg-transparent border-b border-transparent focus:border-indigo-300 outline-none"
+                                                    className="flex-1 p-1 text-xs bg-neutral-50 border border-neutral-200 rounded font-sans outline-none"
                                                     value={note.text}
                                                     onChange={e => {
                                                         const newNotes = [...currentGraph.annotations];
@@ -2358,95 +2315,102 @@ export default function App() {
                                                         setCurrentGraph({ ...currentGraph, annotations: newNotes });
                                                     }}
                                                 />
-                                                <button onClick={() => setCurrentGraph(prev => ({ ...prev, annotations: prev.annotations.filter((_, i) => i !== idx) }))} className="text-slate-300 hover:text-red-500"><X size={12} /></button>
+                                                <button onClick={() => setCurrentGraph(prev => ({ ...prev, annotations: prev.annotations.filter((_, i) => i !== idx) }))} className="text-neutral-400 hover:text-red-600 p-1 transition-colors cursor-pointer">
+                                                    <X size={12} />
+                                                </button>
                                             </div>
                                         ))}
                                         <Button variant="secondary" size="sm" className="w-full text-xs" onClick={() => setCurrentGraph(prev => ({ ...prev, annotations: [...(prev.annotations || []), { id: Date.now(), x: "0", y: "0", text: "Note" }] }))}>
                                             + Add Annotation
                                         </Button>
-                                        <p className="text-[10px] text-slate-400 text-center mt-1">Double-click on chart to add quickly</p>
                                     </div>
                                 </div>
                             </div>
                         ) : (
                             <div className="flex-1 flex flex-col overflow-hidden">
-                                <div className="p-3 border-b border-slate-100 flex justify-end gap-2 bg-slate-50/30">
-                                    <button onClick={() => addDataset('function')} className="text-xs font-medium text-indigo-600 hover:bg-indigo-50 px-3 py-1.5 rounded-md transition-colors flex items-center gap-1"><Sigma size={14} /> Function</button>
-                                    <button onClick={() => addDataset('data')} className="text-xs font-medium text-indigo-600 hover:bg-indigo-50 px-3 py-1.5 rounded-md transition-colors flex items-center gap-1"><Plus size={14} /> Table</button>
+                                <div className="p-3 border-b border-neutral-200 flex justify-between items-center bg-white">
+                                    <span className="text-xs font-semibold text-neutral-700">Datasets ({allDatasets.length})</span>
+                                    <div className="flex gap-1.5">
+                                        <button onClick={() => addDataset('function')} className="text-xs font-semibold rounded-md border border-neutral-200 bg-white hover:bg-neutral-50 hover:border-neutral-300 text-neutral-800 px-2.5 py-1.5 transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs">
+                                            <Sigma size={13} className="text-blue-600" /> + Function
+                                        </button>
+                                        <button onClick={() => addDataset('data')} className="text-xs font-semibold rounded-md border border-neutral-200 bg-white hover:bg-neutral-50 hover:border-neutral-300 text-neutral-800 px-2.5 py-1.5 transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs">
+                                            <Plus size={13} className="text-emerald-600" /> + Table
+                                        </button>
+                                    </div>
                                 </div>
-                                <div className="flex-1 overflow-y-auto p-2 space-y-2 pb-20 lg:pb-2">
+                                <div className="flex-1 overflow-y-auto p-3 space-y-3">
                                     {allDatasets.map((ds) => (
-                                        <div key={ds.id} className="border border-slate-200 rounded-xl overflow-hidden bg-white shadow-sm transition-all hover:shadow-md">
-                                            <div className="flex items-center gap-3 p-3 bg-slate-50/80 border-b border-slate-100 cursor-pointer" onClick={() => setExpandedDatasetId(expandedDatasetId === ds.id ? null : ds.id)}>
-                                                <button onClick={(e) => { e.stopPropagation(); updateDataset(ds.id, { visible: !ds.visible }); }} className={`p-1.5 rounded-md transition-colors ${ds.visible ? 'text-slate-600 hover:bg-slate-200' : 'text-slate-300 hover:bg-slate-100'}`}>
-                                                    {ds.visible ? <Eye size={16} /> : <EyeOff size={16} />}
+                                        <div key={ds.id} className="border border-neutral-200 rounded-xl bg-white shadow-xs overflow-hidden transition-all">
+                                            <div className="flex items-center gap-2.5 p-3 bg-white border-b border-neutral-100 cursor-pointer hover:bg-neutral-50/70" onClick={() => setExpandedDatasetId(expandedDatasetId === ds.id ? null : ds.id)}>
+                                                <button onClick={(e) => { e.stopPropagation(); updateDataset(ds.id, { visible: !ds.visible }); }} className={`p-1.5 rounded-md border transition-colors cursor-pointer ${ds.visible ? 'border-neutral-200 text-neutral-700 hover:bg-neutral-100' : 'border-neutral-200 bg-neutral-100 text-neutral-400'}`} title={ds.visible ? "Hide dataset" : "Show dataset"}>
+                                                    {ds.visible ? <Eye size={14} /> : <EyeOff size={14} />}
                                                 </button>
 
-                                                <div className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: ds.color }}></div>
+                                                <div className="w-3.5 h-3.5 rounded-full ring-2 ring-white shadow-2xs shrink-0" style={{ backgroundColor: ds.color || '#2563EB' }}></div>
 
                                                 <input
-                                                    className="flex-1 bg-transparent text-sm font-semibold text-slate-700 outline-none"
+                                                    className="flex-1 bg-transparent text-xs font-semibold text-neutral-900 outline-none border-b border-transparent focus:border-neutral-400 py-0.5"
                                                     value={ds.name}
                                                     onClick={(e) => e.stopPropagation()}
                                                     onChange={(e) => updateDataset(ds.id, { name: e.target.value })}
                                                 />
 
-                                                <ChevronLeft size={16} className={`text-slate-400 transition-transform ${expandedDatasetId === ds.id ? '-rotate-90' : ''}`} />
+                                                <ChevronLeft size={16} className={`text-neutral-400 transition-transform ${expandedDatasetId === ds.id ? '-rotate-90' : ''}`} />
                                             </div>
 
                                             {expandedDatasetId === ds.id && (
-                                                <div className="p-4 space-y-5 animate-in slide-in-from-top-2 duration-200">
-
+                                                <div className="p-3.5 space-y-4">
                                                     {ds.config.type !== 'function' && (
-                                                        <div className="bg-indigo-50/50 p-3 rounded-lg border border-indigo-100 mb-3">
-                                                            <h4 className="text-[10px] font-bold text-indigo-400 uppercase mb-2 flex items-center gap-1"><Activity size={10} /> Analysis</h4>
-                                                            <div className="grid grid-cols-2 gap-y-1 gap-x-4 text-xs">
-                                                                <div className="flex justify-between">
-                                                                    <span className="text-slate-500">Mean X:</span>
-                                                                    <span className="font-mono">{formatNumber(ds.stats.meanX)}</span>
+                                                        <div className="border border-neutral-200 rounded-lg p-3 bg-neutral-50/60">
+                                                            <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-neutral-600 border-b border-neutral-200 pb-1.5 mb-2.5">
+                                                                <Activity size={13} className="text-blue-600" /> Dataset Statistics
+                                                            </div>
+                                                            <div className="grid grid-cols-2 gap-2">
+                                                                <div className="bg-white border border-neutral-200 rounded-md p-2 shadow-2xs">
+                                                                    <div className="text-[10px] font-semibold uppercase text-neutral-400">Mean X</div>
+                                                                    <div className="text-xs font-mono font-bold text-neutral-900 mt-0.5">{formatNumber(ds.stats.meanX)}</div>
                                                                 </div>
-                                                                <div className="flex justify-between">
-                                                                    <span className="text-slate-500">Mean Y:</span>
-                                                                    <span className="font-mono">{formatNumber(ds.stats.meanY)}</span>
+                                                                <div className="bg-white border border-neutral-200 rounded-md p-2 shadow-2xs">
+                                                                    <div className="text-[10px] font-semibold uppercase text-neutral-400">Mean Y</div>
+                                                                    <div className="text-xs font-mono font-bold text-neutral-900 mt-0.5">{formatNumber(ds.stats.meanY)}</div>
                                                                 </div>
-                                                                <div className="flex justify-between">
-                                                                    <span className="text-slate-500">StdDev Y:</span>
-                                                                    <span className="font-mono">{formatNumber(ds.stats.stdDevY)}</span>
+                                                                <div className="bg-white border border-neutral-200 rounded-md p-2 shadow-2xs">
+                                                                    <div className="text-[10px] font-semibold uppercase text-neutral-400">Std Dev Y</div>
+                                                                    <div className="text-xs font-mono font-bold text-neutral-900 mt-0.5">{formatNumber(ds.stats.stdDevY)}</div>
                                                                 </div>
-                                                                {ds.r2 !== null && (
-                                                                    <div className="flex justify-between">
-                                                                        <span className="text-slate-500">R²:</span>
-                                                                        <span className="font-mono font-bold text-indigo-600">{formatNumber(ds.r2)}</span>
-                                                                    </div>
-                                                                )}
+                                                                <div className="bg-white border border-neutral-200 rounded-md p-2 shadow-2xs">
+                                                                    <div className="text-[10px] font-semibold uppercase text-neutral-400">Fit (R²)</div>
+                                                                    <div className="text-xs font-mono font-bold text-blue-600 mt-0.5">{ds.r2 !== null ? formatNumber(ds.r2) : 'N/A'}</div>
+                                                                </div>
                                                             </div>
                                                         </div>
                                                     )}
 
                                                     <div className="grid grid-cols-2 gap-3">
                                                         <div>
-                                                            <label className="text-[10px] uppercase font-bold text-slate-400 mb-1 block">Graph Type</label>
+                                                            <label className="text-xs font-medium text-neutral-600 mb-1 block">Graph Type</label>
                                                             {ds.config.type === 'function' ? (
-                                                                <div className="w-full text-xs p-1.5 bg-slate-100 border border-slate-200 rounded text-slate-500 italic">Function</div>
+                                                                <div className="w-full text-xs p-2 bg-neutral-100 border border-neutral-200 rounded-md font-mono text-neutral-700">Function</div>
                                                             ) : (
-                                                                <select value={ds.config.type} onChange={e => updateDataset(ds.id, { config: { ...ds.config, type: e.target.value } })} className="w-full text-xs p-1.5 bg-slate-50 border border-slate-200 rounded outline-none focus:ring-1 focus:ring-indigo-500">
-                                                                    <option value="scatter">Scatter</option>
-                                                                    <option value="line">Line</option>
-                                                                    <option value="area">Area</option>
+                                                                <select value={ds.config.type} onChange={e => updateDataset(ds.id, { config: { ...ds.config, type: e.target.value } })} className="w-full text-xs p-2 bg-white border border-neutral-200 rounded-md outline-none cursor-pointer text-neutral-800 focus:border-neutral-400">
+                                                                    <option value="scatter">Scatter Plot</option>
+                                                                    <option value="line">Connected Line</option>
+                                                                    <option value="area">Filled Area</option>
                                                                 </select>
                                                             )}
                                                         </div>
                                                         {ds.config.type !== 'function' && (
                                                             <div>
-                                                                <label className="text-[10px] uppercase font-bold text-slate-400 mb-1 block">Trendline</label>
+                                                                <label className="text-xs font-medium text-neutral-600 mb-1 block">Trendline Fit</label>
                                                                 <select
                                                                     value={ds.config.showTrendline ? ds.config.trendlineType : 'none'}
                                                                     onChange={e => updateDataset(ds.id, { config: { ...ds.config, showTrendline: e.target.value !== 'none', trendlineType: e.target.value === 'none' ? 'linear' : e.target.value } })}
-                                                                    className="w-full text-xs p-1.5 bg-slate-50 border border-slate-200 rounded outline-none focus:ring-1 focus:ring-indigo-500"
+                                                                    className="w-full text-xs p-2 bg-white border border-neutral-200 rounded-md outline-none cursor-pointer text-neutral-800 focus:border-neutral-400"
                                                                 >
                                                                     <option value="none">None</option>
-                                                                    <option value="linear">Linear</option>
-                                                                    <option value="quadratic">Quadratic</option>
+                                                                    <option value="linear">Linear (y = mx + b)</option>
+                                                                    <option value="quadratic">Quadratic (Polynomial)</option>
                                                                     <option value="exponential">Exponential</option>
                                                                     <option value="power">Power</option>
                                                                     <option value="logarithmic">Logarithmic</option>
@@ -2456,49 +2420,133 @@ export default function App() {
                                                     </div>
 
                                                     {ds.config.type === 'function' ? (
-                                                        <div>
-                                                            <label className="text-[10px] uppercase font-bold text-slate-400 mb-1 block">f(x) =</label>
-                                                            <input
-                                                                className="w-full p-2 bg-white border border-slate-300 rounded font-mono text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
-                                                                value={ds.equation || ''}
-                                                                onChange={e => updateDataset(ds.id, { equation: e.target.value })}
-                                                                onClick={e => e.stopPropagation()}
-                                                                placeholder="e.g. sin(x) * x"
-                                                            />
-                                                            <p className="text-[10px] text-slate-400 mt-1">Supported: sin, cos, tan, log, sqrt, abs, pi, e, ^</p>
+                                                        <div className="space-y-3.5">
+                                                            <div>
+                                                                <div className="flex items-center justify-between mb-1">
+                                                                    <label className="text-xs font-medium text-neutral-700">Equation: f(x) =</label>
+                                                                    {ds.points?.error ? (
+                                                                        <span className="text-[10px] font-mono text-red-600 bg-red-50 border border-red-200 px-1.5 py-0.5 rounded shadow-2xs">Syntax Error</span>
+                                                                    ) : (
+                                                                        <span className="text-[10px] font-mono text-emerald-600 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded shadow-2xs">Valid Equation</span>
+                                                                    )}
+                                                                </div>
+                                                                <input
+                                                                    className="w-full p-2 bg-white border border-neutral-200 rounded-md font-mono text-xs text-neutral-900 outline-none focus:border-neutral-900 focus:ring-1 focus:ring-neutral-900 shadow-2xs"
+                                                                    value={ds.equation || ''}
+                                                                    onChange={e => {
+                                                                        const eq = e.target.value;
+                                                                        updateDataset(ds.id, {
+                                                                            equation: eq,
+                                                                            name: eq ? `f(x) = ${eq}` : 'f(x)'
+                                                                        });
+                                                                    }}
+                                                                    onClick={e => e.stopPropagation()}
+                                                                    placeholder="sin(x) * x"
+                                                                />
+                                                                {ds.points?.error ? (
+                                                                    <p className="text-[11px] font-mono text-red-600 mt-1">
+                                                                        {ds.points.error.message || 'Check equation syntax'}
+                                                                    </p>
+                                                                ) : (
+                                                                    <p className="text-[11px] text-neutral-400 mt-1">Supported: sin, cos, tan, log, sqrt, abs, pi, e, ^</p>
+                                                                )}
+                                                            </div>
+
+                                                            {/* Quick Expression Preset Chips */}
+                                                            <div>
+                                                                <div className="text-[10px] font-semibold text-neutral-500 uppercase tracking-wider mb-1.5">Equation Presets</div>
+                                                                <div className="flex flex-wrap gap-1">
+                                                                    {FUNCTION_PRESETS.map(preset => (
+                                                                        <button
+                                                                            key={preset.label}
+                                                                            type="button"
+                                                                            onClick={(e) => {
+                                                                                e.stopPropagation();
+                                                                                updateDataset(ds.id, {
+                                                                                    equation: preset.expr,
+                                                                                    name: `f(x) = ${preset.expr}`
+                                                                                });
+                                                                            }}
+                                                                            className="px-2 py-0.5 text-[11px] font-mono rounded-md bg-neutral-100 hover:bg-neutral-200 text-neutral-700 hover:text-neutral-900 border border-neutral-200 transition-colors cursor-pointer shadow-2xs"
+                                                                        >
+                                                                            {preset.label}
+                                                                        </button>
+                                                                    ))}
+                                                                </div>
+                                                            </div>
+
+                                                            {/* Live Function Evaluator */}
+                                                            <div>
+                                                                <div className="text-[10px] font-semibold text-neutral-500 uppercase tracking-wider mb-1.5">Function Evaluation</div>
+                                                                <FunctionEvaluator equation={ds.equation} />
+                                                            </div>
+
+                                                            {/* High-contrast Color Swatches */}
+                                                            <div>
+                                                                <div className="text-[10px] font-semibold text-neutral-500 uppercase tracking-wider mb-1.5">Curve Color</div>
+                                                                <div className="flex items-center gap-2">
+                                                                    {THEMES.map(theme => (
+                                                                        <button
+                                                                            key={theme.name}
+                                                                            type="button"
+                                                                            onClick={(e) => {
+                                                                                e.stopPropagation();
+                                                                                updateDataset(ds.id, { color: theme.color });
+                                                                            }}
+                                                                            className={`w-5 h-5 rounded-full border transition-transform cursor-pointer shadow-2xs ${
+                                                                                ds.color === theme.color ? 'ring-2 ring-neutral-900 scale-110' : 'border-neutral-200 hover:scale-105'
+                                                                            }`}
+                                                                            style={{ backgroundColor: theme.color }}
+                                                                            title={theme.name}
+                                                                        />
+                                                                    ))}
+                                                                </div>
+                                                            </div>
                                                         </div>
                                                     ) : (
-                                                        <div className="space-y-2">
-                                                            <div className="flex items-center gap-2">
-                                                                <span className="text-xs font-mono text-slate-500 w-4">X</span>
-                                                                <select value={ds.config.xKey} onChange={e => updateDataset(ds.id, { config: { ...ds.config, xKey: e.target.value } })} className="flex-1 text-xs p-1.5 bg-slate-50 border border-slate-200 rounded outline-none">
+                                                        <div className="grid grid-cols-2 gap-3">
+                                                            <div>
+                                                                <label className="text-xs font-medium text-neutral-600 mb-1 block">X Variable</label>
+                                                                <select value={ds.config.xKey} onChange={e => updateDataset(ds.id, { config: { ...ds.config, xKey: e.target.value } })} className="w-full text-xs p-2 bg-white border border-neutral-200 rounded-md outline-none cursor-pointer text-neutral-800 focus:border-neutral-400">
                                                                     {Object.keys(ds.data[0] || {}).map(k => <option key={k} value={k}>{k}</option>)}
                                                                 </select>
                                                             </div>
-                                                            <div className="flex items-center gap-2">
-                                                                <span className="text-xs font-mono text-slate-500 w-4">Y</span>
-                                                                <select value={ds.config.yKey} onChange={e => updateDataset(ds.id, { config: { ...ds.config, yKey: e.target.value } })} className="flex-1 text-xs p-1.5 bg-slate-50 border border-slate-200 rounded outline-none">
+                                                            <div>
+                                                                <label className="text-xs font-medium text-neutral-600 mb-1 block">Y Variable</label>
+                                                                <select value={ds.config.yKey} onChange={e => updateDataset(ds.id, { config: { ...ds.config, yKey: e.target.value } })} className="w-full text-xs p-2 bg-white border border-neutral-200 rounded-md outline-none cursor-pointer text-neutral-800 focus:border-neutral-400">
                                                                     {Object.keys(ds.data[0] || {}).map(k => <option key={k} value={k}>{k}</option>)}
                                                                 </select>
                                                             </div>
                                                         </div>
                                                     )}
 
-                                                    <div className="flex items-center justify-between border-t border-slate-100 pt-3">
-                                                        <div className="flex flex-col gap-1">
-                                                            <span className="text-[10px] font-bold text-slate-400">DATA COLOR</span>
-                                                            <div className="flex gap-1">
+                                                    <div className="flex flex-col gap-3 border-t border-neutral-100 pt-3">
+                                                        <div className="flex flex-col gap-1.5">
+                                                            <span className="text-xs font-medium text-neutral-700">Plot Color</span>
+                                                            <div className="flex flex-wrap gap-2">
                                                                 {THEMES.map(t => (
-                                                                    <button key={t.color} onClick={() => updateDataset(ds.id, { color: t.color })} className={`w-3 h-3 rounded-full ${ds.color === t.color ? 'ring-1 ring-offset-1 ring-slate-400 scale-110' : ''}`} style={{ backgroundColor: t.color }} />
+                                                                    <button 
+                                                                        key={t.color} 
+                                                                        onClick={() => updateDataset(ds.id, { color: t.color })} 
+                                                                        className={`w-6 h-6 rounded-md border border-black/10 transition-transform hover:scale-110 cursor-pointer ${ds.color === t.color ? 'ring-2 ring-neutral-900 ring-offset-2 scale-110' : ''}`} 
+                                                                        style={{ backgroundColor: t.color }} 
+                                                                        title={t.name}
+                                                                    />
                                                                 ))}
                                                             </div>
                                                         </div>
                                                         {ds.config.type !== 'function' && (
-                                                            <div className="flex flex-col gap-1 items-end">
-                                                                <span className="text-[10px] font-bold text-slate-400">TREND COLOR</span>
-                                                                <div className="flex gap-1">
-                                                                    {['#000', '#ef4444', '#22c55e', '#3b82f6'].map(c => (
-                                                                        <button key={c} onClick={() => updateDataset(ds.id, { config: { ...ds.config, trendlineColor: c } })} className={`w-3 h-3 rounded-full ${ds.config.trendlineColor === c ? 'ring-1 ring-offset-1 ring-slate-400 scale-110' : ''}`} style={{ backgroundColor: c }} />
+                                                            <div className="flex flex-col gap-1.5">
+                                                                <span className="text-xs font-medium text-neutral-700">Trendline Color</span>
+                                                                <div className="flex flex-wrap gap-2">
+                                                                    {TRENDLINE_THEMES.map(t => (
+                                                                        <button 
+                                                                            key={t.color} 
+                                                                            onClick={() => updateDataset(ds.id, { config: { ...ds.config, trendlineColor: t.color } })} 
+                                                                            className={`w-6 h-6 rounded-md border border-black/10 transition-transform hover:scale-110 cursor-pointer ${ds.config.trendlineColor === t.color ? 'ring-2 ring-neutral-900 ring-offset-2 scale-110' : ''}`} 
+                                                                            style={{ backgroundColor: t.color }} 
+                                                                            title={t.name}
+                                                                        />
                                                                     ))}
                                                                 </div>
                                                             </div>
@@ -2506,37 +2554,43 @@ export default function App() {
                                                     </div>
 
                                                     {ds.config.type !== 'function' && (
-                                                        <div className="border border-slate-200 rounded-lg overflow-hidden">
-                                                            <div className="bg-slate-50 px-3 py-2 border-b border-slate-200 flex justify-between items-center">
-                                                                <span className="text-[10px] font-bold text-slate-500 uppercase flex items-center gap-1"><Table size={12} /> Data Points</span>
+                                                        <div className="border border-neutral-200 rounded-lg overflow-hidden">
+                                                            <div className="bg-neutral-50 px-3 py-2 border-b border-neutral-200 flex justify-between items-center">
+                                                                <span className="text-xs font-semibold text-neutral-700 flex items-center gap-1.5">
+                                                                    <Table size={13} className="text-neutral-500" /> Data Points ({ds.data.length})
+                                                                </span>
                                                                 <button onClick={() => {
                                                                     const newRow = Object.keys(ds.data[0] || { [ds.config.xKey]: 0, [ds.config.yKey]: 0 }).reduce((acc, k) => ({ ...acc, [k]: 0 }), {});
                                                                     updateDataset(ds.id, { data: [...ds.data, newRow] });
-                                                                }} className="text-indigo-600 hover:text-indigo-700 text-xs font-medium flex items-center gap-1"><Plus size={12} /> Add</button>
+                                                                }} className="rounded-md bg-neutral-900 text-white hover:bg-neutral-800 px-2.5 py-1 text-xs font-medium flex items-center gap-1 transition-colors cursor-pointer shadow-2xs">
+                                                                    + Add Row
+                                                                </button>
                                                             </div>
-                                                            <div className="max-h-32 overflow-y-auto">
+                                                            <div className="max-h-52 overflow-y-auto">
                                                                 <table className="w-full text-xs">
-                                                                    <thead className="bg-slate-50 text-slate-400 font-medium">
+                                                                    <thead className="bg-neutral-50/80 border-b border-neutral-200 sticky top-0">
                                                                         <tr>
-                                                                            <th className="p-2 text-left font-normal border-r border-slate-100 w-1/2">{ds.config.xKey}</th>
-                                                                            <th className="p-2 text-left font-normal w-1/2">{ds.config.yKey}</th>
+                                                                            <th className="p-2 text-left font-semibold text-neutral-600 border-r border-neutral-200 w-1/2">{ds.config.xKey}</th>
+                                                                            <th className="p-2 text-left font-semibold text-neutral-600 w-1/2">{ds.config.yKey}</th>
                                                                         </tr>
                                                                     </thead>
-                                                                    <tbody className="divide-y divide-slate-50">
+                                                                    <tbody>
                                                                         {ds.data.map((row, rIdx) => (
-                                                                            <tr key={rIdx} className="group hover:bg-slate-50">
-                                                                                <td className="p-0 border-r border-slate-100 relative">
-                                                                                    <input className="w-full p-2 bg-transparent outline-none focus:bg-white text-slate-600" value={row[ds.config.xKey]} onChange={e => {
+                                                                            <tr key={rIdx} className="border-b border-neutral-100 last:border-b-0 hover:bg-neutral-50/80">
+                                                                                <td className="p-0 border-r border-neutral-100 relative">
+                                                                                    <input className="w-full px-2 py-1.5 bg-transparent outline-none font-mono text-xs text-neutral-800" value={row[ds.config.xKey]} onChange={e => {
                                                                                         const nd = [...ds.data]; nd[rIdx] = { ...nd[rIdx], [ds.config.xKey]: e.target.value };
                                                                                         updateDataset(ds.id, { data: nd });
                                                                                     }} />
                                                                                 </td>
-                                                                                <td className="p-0 relative">
-                                                                                    <input className="w-full p-2 bg-transparent outline-none focus:bg-white text-slate-600" value={row[ds.config.yKey]} onChange={e => {
+                                                                                <td className="p-0 relative flex items-center">
+                                                                                    <input className="w-full px-2 py-1.5 bg-transparent outline-none font-mono text-xs text-neutral-800" value={row[ds.config.yKey]} onChange={e => {
                                                                                         const nd = [...ds.data]; nd[rIdx] = { ...nd[rIdx], [ds.config.yKey]: e.target.value };
                                                                                         updateDataset(ds.id, { data: nd });
                                                                                     }} />
-                                                                                    <button onClick={() => updateDataset(ds.id, { data: ds.data.filter((_, i) => i !== rIdx) })} className="absolute right-1 top-1.5 opacity-0 group-hover:opacity-100 text-slate-300 hover:text-red-500"><Trash2 size={12} /></button>
+                                                                                    <button onClick={() => updateDataset(ds.id, { data: ds.data.filter((_, i) => i !== rIdx) })} className="p-1.5 text-neutral-300 hover:text-red-600 mr-1 cursor-pointer transition-colors" title="Delete row">
+                                                                                        <Trash2 size={13} />
+                                                                                    </button>
                                                                                 </td>
                                                                             </tr>
                                                                         ))}
@@ -2546,8 +2600,10 @@ export default function App() {
                                                         </div>
                                                     )}
 
-                                                    <div className="pt-2 border-t border-slate-100 flex justify-end">
-                                                        <button onClick={(e) => deleteDataset(ds.id, e)} className="text-red-500 hover:text-red-600 text-xs flex items-center gap-1"><Trash2 size={12} /> Delete Dataset</button>
+                                                    <div className="pt-2 border-t border-neutral-100 flex justify-end">
+                                                        <button onClick={(e) => deleteDataset(ds.id, e)} className="rounded-md border border-red-200 text-red-600 hover:bg-red-50 px-3 py-1.5 text-xs font-medium flex items-center gap-1.5 transition-colors cursor-pointer">
+                                                            <Trash2 size={13} /> Delete Dataset
+                                                        </button>
                                                     </div>
                                                 </div>
                                             )}
@@ -2558,15 +2614,38 @@ export default function App() {
                         )}
                     </div>
                 </div>
+                ) : (
+                    <div className="flex-1 flex flex-col items-center justify-center p-12 text-center h-[calc(100vh-56px)] bg-neutral-50/50">
+                        <div className="max-w-md border border-neutral-200 rounded-2xl p-8 bg-white shadow-xs text-left">
+                            <div className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-mono font-medium bg-neutral-100 text-neutral-600 mb-3">
+                                2D PLOTTER // NO ACTIVE GRAPH
+                            </div>
+                            <h2 className="text-xl font-bold text-neutral-900 mb-2">No Plot Loaded</h2>
+                            <p className="text-xs text-neutral-600 mb-6 leading-relaxed">
+                                Plot experimental data tables, calculate regression trendlines, or plot mathematical functions on the 2D coordinate plane.
+                            </p>
+                            <div className="flex flex-wrap gap-2">
+                                <Button variant="primary" size="md" onClick={createBlankGraph} icon={Plus}>Create Data Plot</Button>
+                                <Button variant="secondary" size="md" onClick={() => createFunctionGraph('sin(x) * x')} icon={Calculator}>Plot Function</Button>
+                                <Button variant="secondary" size="md" onClick={() => { setIsImporting(false); setView('scan'); }} icon={Camera}>Scan Image</Button>
+                            </div>
+                        </div>
+                    </div>
+                )
             )}
             {/* API Key Modal Component */}
             <ApiKeyModal
                 isOpen={showApiKeyModal}
                 onClose={() => setShowApiKeyModal(false)}
-                onSave={() => {
-                    // Start scan if we were waiting for it? 
-                    // optional: could auto-trigger scan if image exists
-                }}
+                onSave={() => {}}
+            />
+            {/* AI Chatbox with real application tools */}
+            <AIChatbox
+                onPlotFunction={handleAIPlotFunction}
+                onPlotImplicit={handleAIPlotImplicit}
+                onLoadDataTable={handleAILoadDataTable}
+                onSwitchTo3D={handleAISwitchTo3D}
+                onSetViewportBounds={handleAISetViewportBounds}
             />
         </div>
     );

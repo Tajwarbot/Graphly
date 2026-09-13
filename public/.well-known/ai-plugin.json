@@ -1,0 +1,17 @@
+{
+  "schema_version": "v1",
+  "name_for_human": "Graphly",
+  "name_for_model": "graphly",
+  "description_for_human": "Interactive 2D & 3D mathematical plotter, calculus analysis, and dataset visualizer.",
+  "description_for_model": "Plugin and Action for plotting 2D mathematical curves, 3D quadric surfaces (hyperboloids, paraboloids, saddles, ripples, sombreros), and scatter data tables with linear/polynomial regression trendlines.",
+  "auth": {
+    "type": "none"
+  },
+  "api": {
+    "type": "openapi",
+    "url": "https://graphly.netlify.app/openapi.json"
+  },
+  "logo_url": "https://graphly.netlify.app/favicon.svg",
+  "contact_email": "support@graphly.app",
+  "legal_info_url": "https://graphly.netlify.app"
+}

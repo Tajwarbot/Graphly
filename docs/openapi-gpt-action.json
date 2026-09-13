@@ -1,0 +1,80 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Graphly Plot Generator API",
+    "description": "Enables external AI assistants (ChatGPT via GPT Actions) to generate shareable links for interactive 2D curves, 3D surfaces, and tabular data in Graphly.",
+    "version": "1.0.0"
+  },
+  "servers": [
+    {
+      "url": "https://graphly.netlify.app"
+    }
+  ],
+  "paths": {
+    "/api/plot": {
+      "post": {
+        "operationId": "generatePlotUrl",
+        "summary": "Generate a shareable Graphly plot link",
+        "description": "Accepts a plot specification and returns a direct link opening Graphly with that exact graph loaded.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "mode": {
+                    "type": "string",
+                    "enum": ["function", "data", "3d"],
+                    "description": "Visual mode to open: 'function' for 2D curve, 'data' for tabular scatter/regression, '3d' for explicit surface."
+                  },
+                  "expression": {
+                    "type": "string",
+                    "description": "Mathematical formula for 2D curve (e.g. 'sin(x)', 'x^2 - 4') or 3D surface (e.g. 'sin(x) * cos(y)')."
+                  },
+                  "name": {
+                    "type": "string",
+                    "description": "Optional title for the dataset or graph."
+                  },
+                  "rows": {
+                    "type": "array",
+                    "description": "Array of data point objects with numerical x and y values for Data Mode.",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "x": { "type": "number" },
+                        "y": { "type": "number" }
+                      },
+                      "required": ["x", "y"]
+                    }
+                  }
+                },
+                "required": ["mode"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Shareable URL generated successfully.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": { "type": "boolean" },
+                    "url": {
+                      "type": "string",
+                      "format": "uri",
+                      "description": "Direct clickable link that launches Graphly with the graph rendered."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
