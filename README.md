@@ -19,6 +19,26 @@ It features an **AI-powered scanner** that turns images of data tables into edit
 
 ---
 
+## **🤖 Connect to AI Assistants (Claude, ChatGPT, Cursor)**
+
+Graphly comes with a built-in **Model Context Protocol (MCP)** server and **OpenAPI Action** specifications, allowing AI models to plot mathematical graphs and 3D surfaces directly.
+
+### One-Prompt Setup for Any AI Coding Agent
+Simply prompt your AI assistant (Cursor, Antigravity, Claude Code, or Copilot):
+> *"Read https://github.com/Tajwarbot/Graphly/blob/main/AGENTS.md and configure the Graphly MCP server for my environment."*
+
+The AI will automatically inspect the repository, register the `plot_function`, `plot_3d_surface`, and `plot_data_table` tools, and configure your local settings.
+
+### ChatGPT Web (Custom GPT Action)
+1. Go to **ChatGPT** &rarr; **My GPTs** &rarr; **Create a GPT** &rarr; **Configure** &rarr; **Actions**.
+2. Click **Import from URL** and paste:
+   ```
+   https://graphly.netlify.app/openapi.json
+   ```
+3. Save. ChatGPT can now natively generate live Graphly 2D curves, 3D quadric surfaces, and scatter trendlines.
+
+---
+
 ## **Getting Started**
 
 Follow these instructions to run the project locally.
