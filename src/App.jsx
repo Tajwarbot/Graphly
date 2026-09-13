@@ -2646,6 +2646,7 @@ export default function App() {
                 onLoadDataTable={handleAILoadDataTable}
                 onSwitchTo3D={handleAISwitchTo3D}
                 onSetViewportBounds={handleAISetViewportBounds}
+                onOpenApiKeyModal={() => setShowApiKeyModal(true)}
             />
         </div>
     );

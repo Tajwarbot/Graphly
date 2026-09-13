@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { getGeminiApiKey, isApiKeyConfigured } from '../lib/security';
 import { compileMathFunction } from '../lib/mathEngine';
-import { Terminal, X, CheckCircle2, Minus, Maximize2, Sparkles, Send } from 'lucide-react';
+import { Terminal, X, CheckCircle2, Minus, Maximize2, Sparkles, Send, Key } from 'lucide-react';
 
 export const GEOMETRIC_3D_SURFACES = [
     {
@@ -19,6 +19,11 @@ export const GEOMETRIC_3D_SURFACES = [
         names: ['paraboloid', 'elliptic paraboloid', 'bowl', 'cup'],
         equation: '(x^2 + y^2) / 6',
         label: 'Elliptic Paraboloid'
+    },
+    {
+        names: ['ellipsoid', '3d ellipse', 'egg surface', 'oval 3d', 'football'],
+        equation: '2 * sqrt(max(0, 1 - (x^2)/16 - (y^2)/9))',
+        label: 'Ellipsoid Surface'
     },
     {
         names: ['sombrero', 'mexican hat', 'hat surface'],
@@ -192,7 +197,7 @@ const AI_TOOLS_DECLARATION = [
                     properties: {
                         expression: {
                             type: "STRING",
-                            description: "The 3D surface expression in terms of x and y, e.g. 'sin(x) * cos(y)' or '(x^2 - y^2) / 4'"
+                            description: "The 3D surface expression in terms of x and y, e.g. 'sin(x) * cos(y)', '(x^2 - y^2) / 4', '2*sqrt(max(0, 1 - x^2/16 - y^2/9))'"
                         }
                     },
                     required: ["expression"]
@@ -317,7 +322,6 @@ export function parseIntentLocally(prompt, executeTool) {
     }
 
     // 4. Check for implicit 2D equations (e.g. x^2 + y^2 = 25 or sin(x) = cos(y))
-    // Note: Disambiguate explicit forms like "y = x^2" or "plot y = sin(x)"
     const isExplicitYEq = /^(?:plot\s+)?(?:y|f\(x\))\s*=/i.test(trimmed);
     if (!isExplicitYEq && lower.includes('=') && lower.includes('x') && lower.includes('y')) {
         let expr = 'x^2 + y^2 = 25';
@@ -404,7 +408,7 @@ export function parseIntentLocally(prompt, executeTool) {
 
     // Friendly fallback: do not pollute canvas with invalid text
     return {
-        text: `I couldn't identify a valid mathematical expression in "${prompt}". Try formulas like "sin(x)", "x^2 - 4", or named surfaces like "hyperboloid", "paraboloid", "saddle", or "ripple".`,
+        text: `I couldn't identify a valid mathematical expression in "${prompt}". Try formulas like "sin(x)", "x^2 - 4", or named surfaces like "hyperboloid", "ellipsoid", "paraboloid", "saddle", or "ripple".`,
         actions: []
     };
 }
@@ -414,21 +418,28 @@ export function AIChatbox({
     onPlotImplicit,
     onLoadDataTable,
     onSwitchTo3D,
-    onSetViewportBounds
+    onSetViewportBounds,
+    onOpenApiKeyModal
 }) {
     const [isOpen, setIsOpen] = useState(false);
     const [isMinimized, setIsMinimized] = useState(false);
+    const [hasKey, setHasKey] = useState(false);
     const [messages, setMessages] = useState([
         {
             id: 'init-1',
             role: 'assistant',
-            text: "Graphly AI Assistant ready. Ask me to plot 2D curves, implicit shapes (circle x^2 + y^2 = 25), 3D surfaces (hyperboloids, paraboloids, ripples), or load data tables.",
+            text: "Graphly AI Assistant ready. Ask me to plot 2D curves, implicit shapes (circle x^2 + y^2 = 25), 3D surfaces (hyperboloids, ellipsoids, paraboloids, ripples), or load data tables.",
             actions: []
         }
     ]);
     const [input, setInput] = useState('');
     const [isProcessing, setIsProcessing] = useState(false);
     const chatEndRef = useRef(null);
+
+    // Sync API key status
+    useEffect(() => {
+        setHasKey(isApiKeyConfigured());
+    }, [isOpen]);
 
     // Only auto-scroll when user or assistant adds subsequent messages, NOT on initial modal opening
     useEffect(() => {
@@ -492,16 +503,39 @@ export function AIChatbox({
         if (apiKey && isApiKeyConfigured()) {
             try {
                 const genAI = new GoogleGenerativeAI(apiKey);
-                const model = genAI.getGenerativeModel({
-                    model: "gemini-1.5-flash",
-                    tools: AI_TOOLS_DECLARATION,
-                    systemInstruction: `You are Graphly AI Assistant. When users ask for 3D surfaces (hyperboloid, paraboloid, saddle, sombrero, ripple), call switchTo3D with pure equation like (x^2-y^2)/4. When asked for implicit curves (circle x^2+y^2=25), call plotImplicitEquation. For 2D explicit curves, call plotFunction with mathematical expression only (no English words like 'a hyperboloid').`
-                });
+                
+                // Try candidate models in order of availability
+                const candidateModels = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-flash-latest"];
+                let result = null;
+                let lastErr = null;
 
-                const chat = model.startChat();
-                const result = await chat.sendMessage(promptText);
+                for (const mName of candidateModels) {
+                    try {
+                        const model = genAI.getGenerativeModel({
+                            model: mName,
+                            tools: AI_TOOLS_DECLARATION,
+                            systemInstruction: `You are Graphly AI Assistant. When users ask for 3D surfaces (hyperboloid, paraboloid, ellipsoid, saddle, sombrero, ripple), call switchTo3D with pure equation like (x^2-y^2)/4 or 2*sqrt(max(0, 1 - x^2/16 - y^2/9)). When asked for implicit curves (circle x^2+y^2=25), call plotImplicitEquation. For 2D explicit curves, call plotFunction with mathematical expression only.`
+                        });
+
+                        const chat = model.startChat();
+                        result = await chat.sendMessage(promptText);
+                        if (result) break;
+                    } catch (mErr) {
+                        lastErr = mErr;
+                    }
+                }
+
+                if (!result) {
+                    throw lastErr || new Error("Unable to reach Gemini API.");
+                }
+
                 const response = await result.response;
-                const functionCalls = response.functionCalls();
+                let functionCalls = [];
+                try {
+                    functionCalls = response.functionCalls() || [];
+                } catch {
+                    functionCalls = [];
+                }
 
                 const executedActions = [];
                 if (functionCalls && functionCalls.length > 0) {
@@ -521,7 +555,20 @@ export function AIChatbox({
                     executedActions.push(...fallback.actions);
                 }
 
-                const replyText = response.text() || "Action completed on active screen.";
+                // Safely extract text without throwing when response contains only function call
+                let replyText = "";
+                try {
+                    replyText = response.text();
+                } catch {
+                    replyText = "";
+                }
+
+                if (!replyText) {
+                    replyText = executedActions.length > 0
+                        ? executedActions.map(a => a.result).join(' | ')
+                        : "Visualization created on canvas.";
+                }
+
                 setMessages(prev => [
                     ...prev,
                     {
@@ -532,14 +579,23 @@ export function AIChatbox({
                     }
                 ]);
             } catch (error) {
-                console.warn("Gemini API call failed, falling back to local intent parser:", error);
+                console.warn("Gemini API call failed:", error);
                 const fallback = parseIntentLocally(promptText, executeTool);
+                
+                // Show informative note if key has an issue
+                let note = "";
+                if (error?.message?.includes('API_KEY_INVALID') || error?.message?.includes('not valid')) {
+                    note = " (API Key Invalid)";
+                } else if (error?.message?.includes('429') || error?.message?.includes('quota')) {
+                    note = " (API Rate Limit Reached)";
+                }
+
                 setMessages(prev => [
                     ...prev,
                     {
                         id: `msg-${Date.now() + 1}`,
                         role: 'assistant',
-                        text: `${fallback.text} (Executed via local tool engine)`,
+                        text: `${fallback.text}${note}`,
                         actions: fallback.actions
                     }
                 ]);
@@ -577,6 +633,7 @@ export function AIChatbox({
                 >
                     <Terminal size={14} className="text-blue-400" />
                     <span>AI Copilot</span>
+                    <span className={`w-1.5 h-1.5 rounded-full ${hasKey ? 'bg-emerald-400' : 'bg-amber-400'}`} />
                 </button>
             ) : isMinimized ? (
                 <div className="w-64 bg-neutral-900 text-white border border-neutral-800 rounded-lg shadow-xl p-2.5 flex items-center justify-between">
@@ -608,6 +665,16 @@ export function AIChatbox({
                         <div className="flex items-center gap-2">
                             <Terminal size={14} className="text-blue-400" />
                             <span className="font-sans text-xs font-bold uppercase tracking-wider">AI Copilot</span>
+                            {onOpenApiKeyModal && (
+                                <button
+                                    onClick={onOpenApiKeyModal}
+                                    className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono border transition-colors cursor-pointer text-neutral-300 border-neutral-700 hover:text-white hover:border-neutral-500"
+                                    title="Click to check or update Gemini API Key"
+                                >
+                                    <span className={`w-1.5 h-1.5 rounded-full ${hasKey ? 'bg-emerald-400' : 'bg-amber-400'}`} />
+                                    <span>{hasKey ? 'API Key Active' : 'Offline Mode'}</span>
+                                </button>
+                            )}
                         </div>
                         <div className="flex items-center gap-1">
                             <button
@@ -676,12 +743,12 @@ export function AIChatbox({
                     {/* Quick Suggestion Chips */}
                     <div className="px-2.5 py-2 border-t border-neutral-200 bg-neutral-50 flex gap-1.5 overflow-x-auto shrink-0">
                         {[
+                            { label: 'Ellipsoid (3D)', prompt: 'plot an ellipsoid' },
                             { label: 'Hyperboloid (3D)', prompt: 'plot a hyperboloid' },
                             { label: 'Circle', prompt: 'plot circle x^2 + y^2 = 25' },
                             { label: 'Parabola & Zoom', prompt: 'plot y = x^2 and zoom out' },
                             { label: 'Sombrero (3D)', prompt: 'plot sombrero in 3D' },
-                            { label: 'Ripple Wave', prompt: 'plot a ripple surface' },
-                            { label: 'Sample Data', prompt: 'load sample data table' }
+                            { label: 'Ripple Wave', prompt: 'plot a ripple surface' }
                         ].map((q, idx) => (
                             <button
                                 key={idx}
@@ -700,7 +767,7 @@ export function AIChatbox({
                             type="text"
                             value={input}
                             onChange={(e) => setInput(e.target.value)}
-                            placeholder="Type prompt (e.g. plot a hyperboloid)..."
+                            placeholder="Type prompt (e.g. plot an ellipsoid)..."
                             className="flex-1 px-3 py-1.5 font-mono text-xs text-neutral-900 bg-neutral-50 border border-neutral-200 rounded-lg focus:outline-none focus:bg-white focus:border-neutral-900 focus:ring-1 focus:ring-neutral-900 placeholder:text-neutral-400"
                         />
                         <button

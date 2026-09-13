@@ -57,6 +57,15 @@ describe('AIChatbox & Natural Language Geometric Parser', () => {
         expect(result.text).toContain('Hyperbolic Paraboloid');
     });
 
+    it('correctly maps "plot an ellipsoid" to 3D ellipsoid surface', () => {
+        const mockExec = createMockExecutor();
+        const result = parseIntentLocally('plot an ellipsoid', mockExec);
+        expect(mockExec.calls).toHaveLength(1);
+        expect(mockExec.calls[0].name).toBe('switchTo3D');
+        expect(mockExec.calls[0].args.expression).toContain('sqrt(max(0, 1 - (x^2)/16 - (y^2)/9))');
+        expect(result.text).toContain('Ellipsoid');
+    });
+
     it('correctly maps "plot a paraboloid" to 3D elliptic paraboloid', () => {
         const mockExec = createMockExecutor();
         const result = parseIntentLocally('plot a paraboloid', mockExec);
