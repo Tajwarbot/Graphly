@@ -2,6 +2,8 @@ import { parse } from 'mathjs';
 
 import {
     normalizeMath,
+    splitRelation,
+    splitEquation,
     scalar,
     splitRestrictions,
     compileRestrictions,
@@ -41,7 +43,8 @@ export function compileSurface(input) {
     if (parametric) return { parametric, implicit: false };
     const { base, restrictions } = splitRestrictions(raw);
     const fields = compileRestrictions(restrictions);
-    const relation = base.match(/^(.*?)(<=|>=|<|>)(.*)$/);
+    const outerRelation = splitRelation(base);
+    const relation = outerRelation && /[<>]/.test(outerRelation.operator) ? [base, outerRelation.left, outerRelation.operator, outerRelation.right] : null;
     if (relation) {
         const constraints = compileRestrictions([base]);
         return {
@@ -53,9 +56,7 @@ export function compileSurface(input) {
             }
         };
     }
-    const parts = (relation ? `${relation[1]}=${relation[3]}` : base).split(
-        '='
-    );
+    const parts = splitEquation(relation ? `${relation[1]}=${relation[3]}` : base);
     if (parts.length > 2)
         throw new Error('Use one equality sign per equation.');
     const implicit =
@@ -69,9 +70,9 @@ export function compileSurface(input) {
           : base;
     // Removing repeated factors preserves their zero set and reveals roots that
     // have no sign change, such as (z-2)^2=0 and abs(x^2+y^2-4)=0.
-    if (implicit && !relation && parts[1].trim() === '0')
+    if (implicit && !relation && !expression.includes('{') && parts[1].trim() === '0')
         expression = zeroBase(parts[0]);
-    else if (implicit && !relation && parts[0].trim() === '0')
+    else if (implicit && !relation && !expression.includes('{') && parts[0].trim() === '0')
         expression = zeroBase(parts[1]);
     const evaluate = scalar(expression);
     if (!implicit && /\bz\b/.test(expression))
@@ -188,6 +189,12 @@ export function buildSurface(input, range = 5, resolution = 36) {
                 heightLimit / 2
             )
                 return;
+            // Probe inside edges: finite endpoints alone cannot detect jumps or poles.
+            for(const [p,q] of [[a,b],[b,c],[c,a]]) {
+                const mid=fn.evaluate((p[0]+q[0])/2,(p[1]+q[1])/2);
+                const tolerance=Math.max(steps[0],steps[1])*0.5;
+                if(!Number.isFinite(mid)||Math.abs(mid-(p[2]+q[2])/2)>tolerance) return;
+            }
             push(a, b, c);
         };
         for (let i = 0; i < n; i++)

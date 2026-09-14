@@ -1,3 +1,4 @@
+import { adaptiveCurve } from './adaptiveCurve.js';
 import { parse } from 'mathjs';
 export const normalizeMath = (input) =>
     String(input || '')
@@ -40,6 +41,7 @@ const functions = [
 export function scalar(expression, variables = ['x', 'y', 'z']) {
     if (!expression || expression.length > 4000)
         throw new Error('Use an expression of 1–4,000 characters.');
+    if (expression.includes('{')) return compilePiecewise(expression, variables);
     const ast = parse(expression);
     ast.traverse((node) => {
         if (
@@ -75,21 +77,74 @@ export function scalar(expression, variables = ['x', 'y', 'z']) {
         }
     };
 }
+function splitTop(text, delimiter) {
+    let depth = 0, start = 0;
+    const parts = [];
+    for (let i = 0; i < text.length; i++) {
+        if ('({['.includes(text[i])) depth++;
+        if (')}]'.includes(text[i])) depth--;
+        if (text[i] === delimiter && depth === 0) { parts.push(text.slice(start, i).trim()); start = i + 1; }
+    }
+    parts.push(text.slice(start).trim()); return parts;
+}
+function condition(source, variables) {
+    const parts = normalizeMath(source).split(/(<=|>=|!=|==|<|>|=)/).map(s => s.trim());
+    if (parts.length < 3 || parts.length % 2 === 0) throw new Error('Piecewise conditions need comparisons.');
+    const terms = parts.filter((_, i) => i % 2 === 0).map(term => scalar(term, variables));
+    return scope => {
+        const values = terms.map(fn => fn(scope));
+        return values.every(Number.isFinite) && parts.filter((_, i) => i % 2 === 1).every((op, i) => {
+            const a = values[i], b = values[i + 1];
+            return op === '<' ? a < b : op === '>' ? a > b : op === '<=' ? a <= b : op === '>=' ? a >= b : op === '!=' ? a !== b : a === b;
+        });
+    };
+}
+function braceGroups(raw) {
+    let depth = 0, start = -1; const groups = [];
+    for (let i = 0; i < raw.length; i++) {
+        if (raw[i] === '{') { if (depth === 0) start = i; depth++; }
+        if (raw[i] === '}') { if (--depth < 0) throw new Error('Unexpected closing brace.'); if (depth === 0) groups.push({ start, end: i + 1, text: raw.slice(start + 1, i) }); }
+    }
+    if (depth) throw new Error('Close every restriction or piecewise brace.');
+    return groups;
+}
+function compilePiecewise(expression, variables) {
+    let rewritten = '', cursor = 0;
+    const pieces = braceGroups(expression).map((group, i) => {
+        const branches = splitTop(group.text, ',').map((branch, j, all) => {
+            const parts = splitTop(branch, ':');
+            if (parts.length === 1 && j === all.length - 1) return { value: scalar(parts[0], variables), matches: () => true };
+            if (parts.length !== 2) throw new Error('Use {x < 0: -x, x >= 0: x}.');
+            return { value: scalar(parts[1], variables), matches: condition(parts[0], variables) };
+        });
+        const symbol = `piecewiseInternal${i}`;
+        if (expression.includes(symbol) || variables.includes(symbol)) throw new Error('Reserved piecewise symbol.');
+        rewritten += expression.slice(cursor, group.start) + '(' + symbol + ')'; cursor = group.end;
+        return { symbol, branches };
+    });
+    rewritten += expression.slice(cursor);
+    const evaluate = scalar(rewritten, [...variables, ...pieces.map(p => p.symbol)]);
+    return scope => {
+        const expanded = { ...scope };
+        for (const piece of pieces) { const branch = piece.branches.find(b => b.matches(scope)); expanded[piece.symbol] = branch ? branch.value(scope) : NaN; }
+        return evaluate(expanded);
+    };
+}
 export function splitRestrictions(input) {
-    const raw = normalizeMath(input),
-        index = raw.indexOf('{');
-    if (index < 0) return { base: raw, restrictions: [] };
-    const suffix = raw.slice(index),
-        restrictions = [...suffix.matchAll(/\{([^{}]+)\}/g)].map((m) => m[1]);
-    if (suffix.replace(/\{[^{}]+\}/g, '').trim() || !restrictions.length)
-        throw new Error('Use trailing restrictions such as {x > 0}{y < 2}.');
-    return { base: raw.slice(0, index).trim(), restrictions };
+    const raw = normalizeMath(input), groups = braceGroups(raw);
+    let end = raw.length; const restrictions = [];
+    for (let i = groups.length - 1; i >= 0; i--) {
+        const group = groups[i];
+        if (raw.slice(group.end, end).trim() || group.text.includes(':') || !/[<>]/.test(group.text)) break;
+        restrictions.unshift(group.text); end = group.start;
+    }
+    return { base: raw.slice(0, end).trim(), restrictions };
 }
 export function compileRestrictions(restrictions, variables = ['x', 'y', 'z']) {
     const fields = [];
     for (const restriction of restrictions)
-        for (const condition of restriction.split(',')) {
-            const parts = condition.split(/(<=|>=|<|>)/).map((s) => s.trim());
+        for (const condition of splitConditions(restriction)) {
+            const parts = splitComparisons(condition);
             if (parts.length < 3 || parts.length % 2 === 0)
                 throw new Error(
                     'Restrictions need comparisons, for example -2 < x < 2.'
@@ -112,8 +167,8 @@ export function tupleComponents(base) {
     let depth = 0,
         start = 0;
     for (let i = 0; i < text.length; i++) {
-        if (text[i] === '(') depth++;
-        if (text[i] === ')') depth--;
+        if ('({'.includes(text[i])) depth++;
+        if (')}'.includes(text[i])) depth--;
         if (text[i] === ',' && depth === 0) {
             parts.push(text.slice(start, i));
             start = i + 1;
@@ -147,8 +202,8 @@ export function compileParametric(input, dimension = 3) {
     // Tighten parameter intervals to their explicit numeric bounds. Other
     // restrictions remain predicates and are clipped during sampling.
     for (const restriction of restrictions)
-        for (const condition of restriction.split(',')) {
-            const parts = condition.split(/(<=|>=|<|>)/).map((s) => s.trim());
+        for (const condition of splitConditions(restriction)) {
+            const parts = splitComparisons(condition);
             for (let i = 0; i < parts.length - 2; i += 2)
                 for (const p of parameters) {
                     const left = parts[i],
@@ -188,17 +243,44 @@ export function parametricCurve(input, dimension = 2, resolution = 600) {
     const fn = compileParametric(input, dimension);
     if (!fn || fn.kind === 'surface')
         throw new Error('Enter a parametric curve using t.');
-    const [min, max] = fn.ranges.t,
-        points = [];
-    const n =
-        fn.kind === 'point' ? 0 : Math.min(2000, Math.max(20, resolution));
-    for (let i = 0; i <= n; i++) {
-        const t = n ? min + ((max - min) * i) / n : 0,
-            p = fn.point({ t });
-        const scope = { t, x: p[0], y: p[1], z: p[2] ?? 0 };
-        points.push(
-            p.every(Number.isFinite) && allowedBy(fn.fields, scope) ? p : null
-        );
-    }
-    return points;
+    const [min,max]=fn.ranges.t;
+    const evaluate=t=>{
+        const p=fn.point({t});
+        return p.every(Number.isFinite)&&allowedBy(fn.fields,{t,x:p[0],y:p[1],z:p[2]??0})?p:null;
+    };
+    if(fn.kind==='point')return [evaluate(0)];
+    return adaptiveCurve(evaluate,min,max,Math.min(2000,Math.max(20,resolution)));
+
 }
+
+/** Find only the outer graph relation; branch predicates are scalar syntax. */
+export function splitRelation(input) {
+    let depth = 0;
+    for (let i = 0; i < input.length; i++) {
+        if ('({['.includes(input[i])) depth++;
+        if (')}]'.includes(input[i])) depth--;
+        if (depth === 0 && /[<>=]/.test(input[i])) {
+            const operator = input[i] + (input[i + 1] === '=' ? '=' : '');
+            return { left: input.slice(0, i).trim(), operator, right: input.slice(i + operator.length).trim() };
+        }
+    }
+    return null;
+}
+export function splitEquation(input) {
+    return splitTop(input, '=');
+}
+
+export function splitComparisons(input) {
+    const parts = []; let depth=0, start=0;
+    for(let i=0;i<input.length;i++) {
+        if ('({['.includes(input[i])) depth++;
+        if (')}]'.includes(input[i])) depth--;
+        if(depth===0 && /[<>]/.test(input[i])) {
+            parts.push(input.slice(start,i).trim());
+            const op=input[i]+(input[i+1]==='='?'=':'');
+            parts.push(op); i+=op.length-1; start=i+1;
+        }
+    }
+    parts.push(input.slice(start).trim()); return parts;
+}
+export const splitConditions = input => splitTop(input, ',');

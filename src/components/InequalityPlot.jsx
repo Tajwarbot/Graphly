@@ -14,7 +14,7 @@ export function InequalityPlot({ datasets, bounds }) {
     const key = JSON.stringify(
         datasets
             .filter((d) => d.visible && d.config.type === 'function')
-            .map(({ id, equation, color }) => ({ id, equation, color }))
+            .flatMap(({ id, equation, plotEquation, plotEquations, color }) => (plotEquations || [plotEquation ?? equation]).map((item,i)=>({id:`${id}-${i}`,equation:item,color})))
     );
     const domainKey = JSON.stringify(bounds);
     const regions = useMemo(

@@ -1,3 +1,4 @@
+import { artExampleRequest } from './artExamples.js';
 import { compileParametric, splitRestrictions } from './expressionSyntax.js';
 import { compileSurface } from './surfaceEngine.js';
 
@@ -138,6 +139,12 @@ export function isMathExpression(expr) {
 }
 
 export function parseIntentLocally(prompt, executeTool, context = {}) {
+    const symbolic = prompt.trim().match(/^(simplify|differentiate|integrate|solve)\s+(.+?)(?:\s+(?:for|with respect to)\s+([a-z]))?$/i);
+    if (symbolic) {
+        const result = executeTool('symbolicMath', {operation:symbolic[1].toLowerCase(), expression:symbolic[2], variable:symbolic[3] || 'x'});
+        return {text:result.success ? [result.expression || result.solutionSet || `${result.variable} = ${result.solutions.join(', ')}`, result.note].filter(Boolean).join('\n') : result.message, actions:[]};
+    }
+
     if (typeof prompt !== 'string' || !prompt.trim()) return { text: 'Enter an equation or describe a graph.', actions: [] };
     const lower = prompt.toLowerCase();
     const run = (name, args) => {
@@ -159,6 +166,10 @@ export function parseIntentLocally(prompt, executeTool, context = {}) {
         const results = scene.map(expression => run(in3D ? 'switchTo3D' : expression.includes('=') ? 'plotImplicitEquation' : 'plotFunction', { expression }));
         return { text: results.map(r => r.text).join('\n'), actions: results.flatMap(r => r.actions) };
     }
+    const art = artExampleRequest(prompt);
+    if (art) return run(art.dimension === '2d' ? 'add2DScene' : 'addScene', art.dimension === '2d'
+        ? { layers: art.layers, bounds: art.bounds }
+        : { surfaces: art.layers, bounds: art.bounds, camera: art.camera });
     // Offline mode must not invent data or replace a graph for an edit request.
     if (/\b(replace|change|remove|delete|edit|make it)\b/.test(lower)) {
         return { text: 'Connect AI to edit existing items by name. Use the expression list to edit an item, or ask me to add a new equation.', actions: [] };

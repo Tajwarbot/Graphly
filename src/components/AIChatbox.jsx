@@ -1,8 +1,7 @@
+import { symbolicMath } from '../lib/symbolicMath.js';
 import React, { useState, useRef, useEffect } from 'react';
 import { getGeminiApiKey, isApiKeyConfigured } from '../lib/security';
-import { compileMathFunction } from '../lib/mathEngine.js';
-import { compileSurface } from '../lib/surfaceEngine';
-import { isMathExpression, parseIntentLocally } from '../lib/chatIntent.js';
+import { parseIntentLocally } from '../lib/chatIntent.js';
 import { AI_TOOLS_DECLARATION } from '../lib/chatTools.js';
 import { createGraphChat } from '../lib/aiProvider.js';
 import { runChatTools } from '../lib/chatToolLoop.js';
@@ -47,6 +46,12 @@ export function AIChatbox(props) {
         try {
             let data;
             switch (name) {
+                case 'symbolicMath':
+                    data = symbolicMath(args);
+                    break;
+                case 'add2DScene':
+                    data = p.onAdd2DScene(args.layers, args.bounds ? {bounds:args.bounds} : {});
+                    break;
                 case 'addScene':
                     data = p.onAddScene(args.surfaces, {
                         ...(args.bounds ? { bounds: args.bounds } : {}),
@@ -64,34 +69,23 @@ export function AIChatbox(props) {
                 case 'removeLayer':
                     data = p.onRemoveLayer(args.layerId);
                     break;
+                // The App handlers validate against the current parameter environment.
+                // Compiling here without that environment rejects valid named parameters.
+                case 'setParameter': {
+                    const { layerId, value, ...settings } = args;
+                    data = p.onSetParameter(layerId, value, settings);
+                    break;
+                }
                 case 'updateExpression':
-                    if (
-                        !isMathExpression(args.expression) &&
-                        !compileMathFunction(args.expression)
-                    )
-                        throw new Error('Provide a valid equation.');
                     data = p.onUpdateExpression(args.layerId, args.expression);
                     break;
                 case 'switchTo3D':
-                    compileSurface(args.expression);
                     data = p.onSwitchTo3D(args.expression);
                     break;
                 case 'plotFunction':
-                    if (
-                        !isMathExpression(args.expression) ||
-                        /=|\b[yz]\b/.test(args.expression)
-                    )
-                        throw new Error(
-                            'Use an expression in x, or the implicit equation tool.'
-                        );
                     data = p.onPlotFunction(args.expression);
                     break;
                 case 'plotImplicitEquation':
-                    if (
-                        !compileMathFunction(args.expression) ||
-                        /\bz\b/.test(args.expression)
-                    )
-                        throw new Error('Provide a 2D equation.');
                     data = p.onPlotImplicit(args.expression);
                     break;
                 case 'loadDataTable':
@@ -120,6 +114,8 @@ export function AIChatbox(props) {
                 message:
                     name === 'switchTo3D'
                         ? `Added 3D surface: ${args.expression}`
+                        : name === 'add2DScene'
+                          ? `Added ${args.layers.length} 2D layers.`
                         : name === 'addScene'
                           ? `Added ${args.surfaces.length} surfaces.`
                           : `Applied ${name}${args.expression ? `: ${args.expression}` : ''}.`,
@@ -157,18 +153,26 @@ export function AIChatbox(props) {
         setInput('');
         setAttachments([]);
         setIsProcessing(true);
-        setMessages((previous) => [
-            ...previous,
-            { role: 'user', text: prompt, files: pending.map((f) => f.name) }
-        ]);
+        setMessages((previous) => {
+            const retained = previous.map(message => ({...message}));
+            let kept = pending.length ? 1 : 0;
+            for (let i = retained.length - 1; i >= 0; i--) {
+                if (retained[i].attachments?.length && ++kept > 2) delete retained[i].attachments;
+            }
+            return [...retained, {role:'user', text:prompt, files:pending.map(f=>f.name), attachments:pending}];
+        });
         try {
             let result;
             if (apiKey) {
-                const history = messages
-                    .slice(-20)
+                let attachmentTurns = pending.length ? 1 : 0;
+                const historyMessages = messages.slice(-20).map(m=>({...m}));
+                for (let i=historyMessages.length-1;i>=0;i--) {
+                    if (historyMessages[i].attachments?.length && ++attachmentTurns > 2) delete historyMessages[i].attachments;
+                }
+                const history = historyMessages
                     .map((m) => ({
                         role: m.role === 'assistant' ? 'model' : 'user',
-                        parts: [{ text: m.text }]
+                        parts: [{ text: m.text }, ...attachmentParts(m.attachments || [])]
                     }));
                 while (history.length && history[0].role !== 'user')
                     history.shift();
@@ -242,7 +246,7 @@ export function AIChatbox(props) {
                     className="graphly-chat-launch"
                     onClick={() => setIsOpen(true)}
                 >
-                    Ask Graphly
+                    Ask Graphly · {isProcessing ? 'Working' : hasKey ? 'AI ready' : 'Offline'}
                 </button>
             ) : (
                 <section
@@ -252,10 +256,8 @@ export function AIChatbox(props) {
                     <header>
                         <div>
                             <strong>Graphly</strong>
-                            <span>
-                                {hasKey
-                                    ? 'Gemini connected'
-                                    : 'Local plotting · connect for more'}
+                            <span role="status" aria-live="polite">
+                                {isProcessing ? 'Working · composing your graph' : hasKey ? 'AI ready · Gemini key configured' : 'Offline · local plotting'}
                             </span>
                         </div>
                         <button

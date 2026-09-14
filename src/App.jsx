@@ -1,7 +1,10 @@
+import { prepare2DScene, validateExpressions, parameterPatch } from './lib/sceneTools.js';
+import { expressionEnvironment } from './lib/expressionEnvironment.js';
+import { ParameterSlider } from './components/ParameterSlider.jsx';
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import {
     Camera, BarChart2, FileText, Check, AlertCircle, RefreshCw,
-    ChevronRight, Zap, Settings, Save, Download, Edit2, Plus, Trash2,
+    ChevronRight, ChevronDown, Zap, Settings, Save, Download, Edit2, Plus, Trash2,
     LogOut, Layout, TrendingUp, Grid, Type, Palette, ZoomIn, Home,
     MoreVertical, Share2, ChevronLeft, Calculator, Move, MousePointer2,
     ArrowRightLeft, Eye, EyeOff, Table, Activity, X, FilePlus, FileSpreadsheet, StickyNote, Menu, Sigma, Info, RotateCcw, Minus, Box, Sliders
@@ -22,7 +25,6 @@ import { ImportPage } from './components/ImportPage';
 import { HomePage } from './components/HomePage';
 import { prepareScene, validateView, validateStyle } from './lib/sceneTools.js';
 import { makeSurface, makeDataset, appendDataset } from './lib/graphState.js';
-import { compileSurface } from './lib/surfaceEngine.js';
 import { connectGraphSession } from './lib/graphSessionClient.js';
 import { samplePlot2D } from './lib/plot2D.js';
 import { PlotMetrics } from './components/PlotMetrics.jsx';
@@ -256,7 +258,6 @@ export default function App() {
 
     // Cursor position for interactive background
     const [cursorCoords, setCursorCoords] = useState(null);
-    const [quickFunctionExpr, setQuickFunctionExpr] = useState('');
 
     useEffect(() => {
         const loadGraphs = () => {
@@ -318,7 +319,8 @@ export default function App() {
                 } else if (parsed.mode === 'function' || parsed.mode === '2d') {
                     setAppMode('2d');
                     if (parsed.expression) {
-                        handleAIPlotFunction(parsed.expression);
+                        validateExpressions([{equation:parsed.expression}],2);
+                        setCurrentGraph(previous => appendDataset(previous,makeDataset({equation:parsed.expression})));
                     }
                     if (parsed.viewportBounds) {
                         setViewportBounds(parsed.viewportBounds);
@@ -334,7 +336,8 @@ export default function App() {
                 }
             } else if ((modeParam === 'function' || modeParam === '2d') && fnParam) {
                 setAppMode('2d');
-                handleAIPlotFunction(fnParam);
+                validateExpressions([{equation:fnParam}],2);
+                setCurrentGraph(previous => appendDataset(previous,makeDataset({equation:fnParam})));
                 setView('editor');
             } else if (modeParam === '3d') {
                 if (fnParam) {
@@ -738,41 +741,6 @@ export default function App() {
         setExpandedDatasetId(newId);
     };
 
-    const addFunctionDataset = (expr) => {
-        const cleanExpr = (expr || 'sin(x)').trim();
-        const nextIdx = currentGraph?.datasets?.length || 0;
-        const newId = `ds-${Date.now()}`;
-        const newDs = {
-            id: newId,
-            name: cleanExpr.includes('=') ? cleanExpr : `f(x) = ${cleanExpr}`,
-            data: [],
-            equation: cleanExpr,
-            visible: true,
-            color: THEMES[nextIdx % THEMES.length].color,
-            config: {
-                type: 'function',
-                xKey: 'x',
-                yKey: 'y',
-                showTrendline: false,
-                trendlineType: 'linear',
-                trendlineColor: '#ef4444'
-            }
-        };
-        if (currentGraph) {
-            setCurrentGraph(prev => ({ ...prev, datasets: [...prev.datasets, newDs] }));
-            setExpandedDatasetId(newId);
-        } else {
-            createFunctionGraph(cleanExpr);
-        }
-    };
-
-    const handleQuickFunctionSubmit = (e) => {
-        e?.preventDefault();
-        if (!quickFunctionExpr.trim()) return;
-        addFunctionDataset(quickFunctionExpr.trim());
-        setQuickFunctionExpr('');
-    };
-
     const saveGraph = async () => {
         if (!currentGraph) return;
 
@@ -835,9 +803,10 @@ export default function App() {
                 const xRange = zoomDomain.x[1] - zoomDomain.x[0];
                 const ratio = plotAreaSize.height / plotAreaSize.width;
                 const yCenter = (zoomDomain.y[1] + zoomDomain.y[0]) / 2;
-                const newYRange = xRange * ratio;
+                const newYRange = Math.max(xRange * ratio, zoomDomain.y[1] - zoomDomain.y[0]);
+                const xCenter = (zoomDomain.x[0] + zoomDomain.x[1]) / 2;
                 return {
-                    x: zoomDomain.x,
+                    x: [xCenter-newYRange/ratio/2, xCenter+newYRange/ratio/2],
                     y: [yCenter - newYRange / 2, yCenter + newYRange / 2]
                 };
             }
@@ -860,7 +829,9 @@ export default function App() {
             const xRange = d.x[1] - d.x[0];
             const ratio = plotAreaSize.height / plotAreaSize.width;
             const yCenter = (d.y[1] + d.y[0]) / 2;
-            const newYRange = xRange * ratio;
+            const newYRange = Math.max(xRange * ratio, d.y[1]-d.y[0]);
+            const xCenter = (d.x[0]+d.x[1])/2;
+            d.x = [xCenter-newYRange/ratio/2, xCenter+newYRange/ratio/2];
             d.y = [yCenter - newYRange / 2, yCenter + newYRange / 2];
         }
 
@@ -906,6 +877,7 @@ export default function App() {
     // Derived state for Sidebar (contains stats but NO filtering by visibility)
     const allDatasets = useMemo(() => {
         if (!currentGraph) return [];
+        const environment = expressionEnvironment(currentGraph.datasets);
         return currentGraph.datasets.map(ds => {
 
             let points = [];
@@ -919,8 +891,8 @@ export default function App() {
                 // This gives the "Desmos" feel of infinite scrolling
 
                 try {
-                    points = samplePlot2D(ds.equation, {xMin:currentDomain.x[0],xMax:currentDomain.x[1],yMin:currentDomain.y[0],yMax:currentDomain.y[1]});
-                } catch { points = []; }
+                    points = environment.plotExpressions(ds.equation,2).flatMap(equation => [...samplePlot2D(equation, {xMin:currentDomain.x[0],xMax:currentDomain.x[1],yMin:currentDomain.y[0],yMax:currentDomain.y[1]}),{x:null,y:null}]);
+                } catch (error) { points = []; points.error = error; }
             } else {
                 // Standard Data Dataset
                 points = ds.data.map(d => ({
@@ -945,7 +917,9 @@ export default function App() {
 
             // Return the dataset with enriched display properties, 
             // BUT KEEP ORIGINAL 'equation' (user input) separate from 'trendlineEquation'
-            return { ...ds, points, trendData, trendlineEquation, stats, r2 };
+            let plotEquation = ds.equation, plotEquations=[];
+            try { if (ds.equation) plotEquations = environment.plotExpressions(ds.equation,2); } catch { plotEquation = ''; }
+            return { ...ds, plotEquation, plotEquations, points, trendData, trendlineEquation, stats, r2 };
         });
     }, [currentGraph, currentDomain, globalBounds]);
 
@@ -1225,12 +1199,13 @@ export default function App() {
     const setThreeDEquation = expression => setThreeDSurfaces([makeSurface(expression)]);
 
     const handleAIPlotFunction = (expression) => {
-        setAppMode('2d');
-        setView('editor');
         const cleanExpr = (expression || 'sin(x)').trim();
         const newDs = makeDataset({ equation: cleanExpr, name: cleanExpr.includes('=') ? cleanExpr : `f(x) = ${cleanExpr}` });
+        validateExpressions([...(currentGraph?.datasets || []),newDs],2);
+        setAppMode('2d'); setView('editor');
         setCurrentGraph(prev => appendDataset(prev, newDs));
         setExpandedDatasetId(newDs.id);
+        return {layerId:newDs.id};
     };
 
     const handleAIPlotImplicit = (expression) => {
@@ -1248,7 +1223,7 @@ export default function App() {
 
     const handleAISwitchTo3D = (expression) => {
         if (expression && typeof expression === 'string') {
-            compileSurface(expression);
+            validateExpressions([...threeDSurfaces,{equation:expression}],3);
             const surface = makeSurface(expression, threeDSurfaces.length);
             setThreeDSurfaces(prev => [...prev, {...makeSurface(expression, prev.length), id:surface.id}]);
             setAppMode('3d'); setView('editor');
@@ -1261,23 +1236,43 @@ export default function App() {
     const handleAIUpdateExpression = (layerId, expression) => {
         const surface = threeDSurfaces.find(s => s.id === layerId);
         if (surface) {
-            compileSurface(expression);
+            validateExpressions(threeDSurfaces.map(s => s.id === layerId ? {...s,equation:expression} : s),3);
             setThreeDSurfaces(previous => previous.map(s => s.id === layerId ? {...s,equation:expression} : s));
             setAppMode('3d'); setView('editor'); return;
         }
         const dataset = currentGraph?.datasets.find(d => d.id === layerId && d.config.type === 'function');
         if (!dataset) throw new Error('No expression with that layer ID exists.');
-        if (!compileMathFunction(expression) || /\bz\b/.test(expression)) throw new Error('Enter a valid 2D equation.');
+        validateExpressions(currentGraph.datasets.map(d => d.id === layerId ? {...d,equation:expression} : d),2);
         setCurrentGraph(previous => ({...previous,datasets:previous.datasets.map(d => d.id === layerId ? {...d,equation:expression,name:expression} : d)}));
         setAppMode('2d'); setView('editor');
     };
 
+    const handleAIAdd2DScene = (layers, view = {}) => {
+        const additions = prepare2DScene(layers,view,currentGraph?.datasets || []);
+        setCurrentGraph(previous => additions.reduce((graph, layer) => {
+            const next = appendDataset(graph, layer);
+            if (layer.color) next.datasets[next.datasets.length - 1].color = layer.color;
+            return next;
+        }, previous));
+        if (view.bounds) setViewportBounds(view.bounds);
+        setAppMode('2d'); setView('editor');
+        return {layers:additions.map(({id,name,equation}) => ({id,name,equation}))};
+    };
+
     const handleAIAddScene = (surfaces, view = {}) => {
-        const additions = prepareScene(surfaces, view);
+        const additions = prepareScene(surfaces, view, threeDSurfaces);
         setThreeDSurfaces(previous => [...previous, ...additions]);
         setThreeDView(previous => ({...previous, ...view}));
         setAppMode('3d'); setView('editor');
         return { layers: additions.map(({id, name, equation}) => ({id, name, equation})) };
+    };
+    const handleAISetParameter = (layerId, value, settings = {}) => {
+        const layer = threeDSurfaces.find(s => s.id === layerId) || currentGraph?.datasets.find(d => d.id === layerId);
+        const patch = parameterPatch(layer,value,settings);
+        handleAIUpdateExpression(layerId,patch.equation);
+        setThreeDSurfaces(previous => previous.map(s => s.id === layerId ? {...s,...patch} : s));
+        setCurrentGraph(previous => previous ? {...previous,datasets:previous.datasets.map(d => d.id === layerId ? {...d,...patch} : d)} : previous);
+        return {layerId,...patch};
     };
     const handleAIRemoveLayer = layerId => {
         if (!threeDSurfaces.some(s => s.id === layerId) && !currentGraph?.datasets.some(d => d.id === layerId)) throw new Error('Unknown layer ID.');
@@ -1479,51 +1474,10 @@ export default function App() {
                 ) : currentGraph ? (
                 <div className="relative flex h-[calc(100dvh-var(--graphly-nav-height,56px))] overflow-hidden bg-neutral-50">
                     <div className="flex-1 relative bg-neutral-50 flex flex-col overflow-hidden border-r border-neutral-200">
-                        {/* Top 2D Function Quick-Add & Preset Bar */}
-                        <div className="p-2.5 bg-white border-b border-neutral-200 flex flex-wrap items-center gap-2.5 shrink-0 z-20 shadow-2xs">
-                            <div className="flex items-center gap-1.5 font-mono font-semibold text-xs bg-neutral-100 text-neutral-800 border border-neutral-200 px-2.5 py-1.5 rounded-md shadow-2xs">
-                                <Calculator size={14} className="text-blue-600" />
-                                <span>Equation</span>
-                            </div>
-                            <form onSubmit={handleQuickFunctionSubmit} className="flex-1 min-w-[200px] flex items-center gap-2">
-                                <input
-                                    type="text"
-                                    value={quickFunctionExpr}
-                                    onChange={(e) => setQuickFunctionExpr(e.target.value)}
-                                    placeholder="sin(x), x² + y² = 9, x = 2"
-                                    className="flex-1 bg-white border border-neutral-200 px-3 py-1.5 font-mono text-xs text-neutral-900 placeholder:text-neutral-400 focus:outline-none focus:border-neutral-900 focus:ring-1 focus:ring-neutral-900 rounded-md"
-                                />
-                                <button
-                                    type="submit"
-                                    className="bg-neutral-900 text-white border border-neutral-900 px-3.5 py-1.5 font-sans text-xs font-semibold hover:bg-neutral-800 transition-colors flex items-center gap-1.5 rounded-md cursor-pointer shadow-2xs shrink-0"
-                                >
-                                    <Plus size={14} />
-                                    <span>Plot</span>
-                                </button>
-                            </form>
-                            
-                            {/* Function Preset Chips */}
-                            <div className="hidden lg:flex items-center gap-1 text-[11px] font-mono text-neutral-500 border-l border-neutral-200 pl-2.5">
-                                <span className="text-[10px] uppercase text-neutral-400 font-sans font-semibold mr-1">Presets:</span>
-                                {FUNCTION_PRESETS.slice(0, 5).map(preset => (
-                                    <button
-                                        key={preset.label}
-                                        type="button"
-                                        onClick={() => addFunctionDataset(preset.expr)}
-                                        className="px-2 py-0.5 rounded bg-neutral-100 hover:bg-neutral-200 text-neutral-700 hover:text-neutral-900 transition-colors cursor-pointer"
-                                    >
-                                        {preset.label}
-                                    </button>
-                                ))}
-                            </div>
-
-                            <button
-                                onClick={() => setIsSidebarOpen(true)}
-                                className="lg:hidden ml-auto bg-white p-1.5 border border-neutral-200 rounded-md text-neutral-800 hover:bg-neutral-100 transition-colors shadow-xs"
-                                aria-label="Open Sidebar"
-                            >
-                                <Menu size={16} />
-                            </button>
+                        <div className="lg:hidden absolute top-3 right-3 z-50">
+                            <button type="button" onClick={() => setIsSidebarOpen(true)}
+                                className="min-h-11 px-3 border border-neutral-300 rounded-md bg-white text-sm font-mono hover:bg-neutral-100"
+                                aria-label="Open Sidebar">Expressions</button>
                         </div>
 
                         <div 
@@ -1796,9 +1750,10 @@ export default function App() {
                     `}>
                         <button
                             onClick={() => setIsSidebarOpen(false)}
-                            className="lg:hidden xl:hidden absolute top-2.5 right-2.5 p-1 rounded-md border border-neutral-300 text-neutral-600 hover:bg-neutral-100 z-50 cursor-pointer"
+                            aria-label="Close expressions"
+                            className="lg:hidden xl:hidden min-h-11 px-4 text-right border-b border-neutral-200 text-sm font-mono text-neutral-700 hover:bg-neutral-100 cursor-pointer"
                         >
-                            <X size={18} />
+                            Close expressions
                         </button>
 
                         <div className="flex border-b border-neutral-300 shrink-0 bg-neutral-100/60 p-1.5 gap-1.5">
@@ -2206,6 +2161,7 @@ export default function App() {
                                                                     onClick={e => e.stopPropagation()}
                                                                     placeholder="sin(x) * x"
                                                                 />
+                                                                <ParameterSlider settings={ds.parameterSettings} onSettingsChange={parameterSettings => updateDataset(ds.id, {parameterSettings})} equation={ds.equation} onChange={equation => updateDataset(ds.id, {equation, name:equation})} />
                                                                 {ds.points?.error ? (
                                                                     <p className="text-[11px] font-mono text-red-600 mt-1">
                                                                         {ds.points.error.message || 'Check equation syntax'}
@@ -2215,10 +2171,13 @@ export default function App() {
                                                                 )}
                                                             </div>
 
-                                                            {/* Quick Expression Preset Chips */}
-                                                            <div>
-                                                                <div className="text-[10px] font-semibold text-neutral-500 uppercase tracking-wider mb-1.5">Equation Presets</div>
-                                                                <div className="flex flex-wrap gap-1">
+                                                            {/* Secondary equation helpers stay available without competing with the editor. */}
+                                                            <details className="group border-t border-neutral-100 pt-3">
+                                                                <summary className="min-h-11 flex items-center justify-between cursor-pointer text-xs font-semibold text-neutral-700 select-none">
+                                                                    <span>Presets</span>
+                                                                    <ChevronDown size={14} className="text-neutral-400 transition-transform group-open:rotate-180" />
+                                                                </summary>
+                                                                <div className="flex flex-wrap gap-1.5 pt-2">
                                                                     {FUNCTION_PRESETS.map(preset => (
                                                                         <button
                                                                             key={preset.label}
@@ -2230,13 +2189,13 @@ export default function App() {
                                                                                     name: `f(x) = ${preset.expr}`
                                                                                 });
                                                                             }}
-                                                                            className="px-2 py-0.5 text-[11px] font-mono rounded-md bg-neutral-100 hover:bg-neutral-200 text-neutral-700 hover:text-neutral-900 border border-neutral-200 transition-colors cursor-pointer shadow-2xs"
+                                                                            className="min-h-11 px-2.5 text-[11px] font-mono rounded-md bg-neutral-100 hover:bg-neutral-200 text-neutral-700 hover:text-neutral-900 border border-neutral-200 transition-colors cursor-pointer shadow-2xs"
                                                                         >
                                                                             {preset.label}
                                                                         </button>
                                                                     ))}
                                                                 </div>
-                                                            </div>
+                                                            </details>
 
                                                             {/* A multivalued implicit curve has no single f(x). */}
                                                             {compileMathFunction(ds.equation)?.type === 'explicit' && (
@@ -2246,27 +2205,6 @@ export default function App() {
                                                                 </div>
                                                             )}
 
-                                                            {/* High-contrast Color Swatches */}
-                                                            <div>
-                                                                <div className="text-[10px] font-semibold text-neutral-500 uppercase tracking-wider mb-1.5">Curve Color</div>
-                                                                <div className="flex items-center gap-2">
-                                                                    {THEMES.map(theme => (
-                                                                        <button
-                                                                            key={theme.name}
-                                                                            type="button"
-                                                                            onClick={(e) => {
-                                                                                e.stopPropagation();
-                                                                                updateDataset(ds.id, { color: theme.color });
-                                                                            }}
-                                                                            className={`w-5 h-5 rounded-full border transition-transform cursor-pointer shadow-2xs ${
-                                                                                ds.color === theme.color ? 'ring-2 ring-neutral-900 scale-110' : 'border-neutral-200 hover:scale-105'
-                                                                            }`}
-                                                                            style={{ backgroundColor: theme.color }}
-                                                                            title={theme.name}
-                                                                        />
-                                                                    ))}
-                                                                </div>
-                                                            </div>
                                                         </div>
                                                     ) : (
                                                         <div className="grid grid-cols-2 gap-3">
@@ -2285,38 +2223,48 @@ export default function App() {
                                                         </div>
                                                     )}
 
-                                                    <div className="flex flex-col gap-3 border-t border-neutral-100 pt-3">
-                                                        <div className="flex flex-col gap-1.5">
-                                                            <span className="text-xs font-medium text-neutral-700">Plot Color</span>
-                                                            <div className="flex flex-wrap gap-2">
-                                                                {THEMES.map(t => (
-                                                                    <button 
-                                                                        key={t.color} 
-                                                                        onClick={() => updateDataset(ds.id, { color: t.color })} 
-                                                                        className={`w-6 h-6 rounded-md border border-black/10 transition-transform hover:scale-110 cursor-pointer ${ds.color === t.color ? 'ring-2 ring-neutral-900 ring-offset-2 scale-110' : ''}`} 
-                                                                        style={{ backgroundColor: t.color }} 
-                                                                        title={t.name}
-                                                                    />
-                                                                ))}
-                                                            </div>
-                                                        </div>
-                                                        {ds.config.type !== 'function' && (
+                                                    <details className="group border-t border-neutral-100 pt-3">
+                                                        <summary className="min-h-11 flex items-center justify-between cursor-pointer text-xs font-semibold text-neutral-700 select-none">
+                                                            <span>Style</span>
+                                                            <ChevronDown size={14} className="text-neutral-400 transition-transform group-open:rotate-180" />
+                                                        </summary>
+                                                        <div className="space-y-3 pt-2">
                                                             <div className="flex flex-col gap-1.5">
-                                                                <span className="text-xs font-medium text-neutral-700">Trendline Color</span>
+                                                                <span className="text-xs font-medium text-neutral-700">Plot Color</span>
                                                                 <div className="flex flex-wrap gap-2">
-                                                                    {TRENDLINE_THEMES.map(t => (
-                                                                        <button 
-                                                                            key={t.color} 
-                                                                            onClick={() => updateDataset(ds.id, { config: { ...ds.config, trendlineColor: t.color } })} 
-                                                                            className={`w-6 h-6 rounded-md border border-black/10 transition-transform hover:scale-110 cursor-pointer ${ds.config.trendlineColor === t.color ? 'ring-2 ring-neutral-900 ring-offset-2 scale-110' : ''}`} 
-                                                                            style={{ backgroundColor: t.color }} 
+                                                                    {THEMES.map(t => (
+                                                                        <button
+                                                                            key={t.color}
+                                                                            type="button"
+                                                                            aria-label={`Set plot color to ${t.name}`}
+                                                                            onClick={() => updateDataset(ds.id, { color: t.color })}
+                                                                            className={`min-w-11 min-h-11 rounded-md border border-black/10 transition-transform hover:scale-105 cursor-pointer ${ds.color === t.color ? 'ring-2 ring-neutral-900 ring-offset-2' : ''}`}
+                                                                            style={{ backgroundColor: t.color }}
                                                                             title={t.name}
                                                                         />
                                                                     ))}
                                                                 </div>
                                                             </div>
-                                                        )}
-                                                    </div>
+                                                            {ds.config.type !== 'function' && (
+                                                                <div className="flex flex-col gap-1.5">
+                                                                    <span className="text-xs font-medium text-neutral-700">Trendline Color</span>
+                                                                    <div className="flex flex-wrap gap-2">
+                                                                        {TRENDLINE_THEMES.map(t => (
+                                                                            <button
+                                                                                key={t.color}
+                                                                                type="button"
+                                                                                aria-label={`Set trendline color to ${t.name}`}
+                                                                                onClick={() => updateDataset(ds.id, { config: { ...ds.config, trendlineColor: t.color } })}
+                                                                                className={`min-w-11 min-h-11 rounded-md border border-black/10 transition-transform hover:scale-105 cursor-pointer ${ds.config.trendlineColor === t.color ? 'ring-2 ring-neutral-900 ring-offset-2' : ''}`}
+                                                                                style={{ backgroundColor: t.color }}
+                                                                                title={t.name}
+                                                                            />
+                                                                        ))}
+                                                                    </div>
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    </details>
 
                                                     {ds.config.type !== 'function' && (
                                                         <div className="border border-neutral-200 rounded-lg overflow-hidden">
@@ -2408,6 +2356,8 @@ export default function App() {
             <AIChatbox
                 graphContext={{ dimension: appMode === '3d' ? '3d' : '2d', layers: appMode === '3d' ? threeDSurfaces.map(({id,name,equation,visible}) => ({id,name,equation,visible,kind:'surface'})) : (currentGraph?.datasets || []).map(({id,name,equation,visible,config}) => ({id,name,equation,visible,kind:config.type})) }}
                 onAddScene={handleAIAddScene}
+                onAdd2DScene={handleAIAdd2DScene}
+                onSetParameter={handleAISetParameter}
                 onRemoveLayer={handleAIRemoveLayer}
                 onSetLayerStyle={handleAISetLayerStyle}
                 onSet3DView={handleAISet3DView}

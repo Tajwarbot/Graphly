@@ -1,62 +1,37 @@
-.graphly-home { min-height: calc(100dvh - 56px); padding: clamp(36px, 7vw, 88px) 24px 64px; background: #fafafa; }
-.graphly-home-content { max-width: 1000px; margin: 0 auto; }
-.graphly-home-intro { max-width: 650px; margin-bottom: 36px; }
-.graphly-home-eyebrow { color: #2563eb; font-size: 13px; font-weight: 600; margin: 0 0 16px; }
-.graphly-home-intro h1 { color: #18181b; font-size: clamp(32px, 4.7vw, 48px); font-weight: 600; line-height: 1.14; letter-spacing: -.045em; margin: 0 0 20px; }
-.graphly-home-intro h1 span { color: #71717a; }
-.graphly-home-intro > p:last-child { max-width: 560px; color: #52525b; font-size: 15px; line-height: 1.8; margin: 0; }
-.graphly-home-starters { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
-.graphly-home-starter { display: flex; flex-direction: column; align-items: flex-start; background: #fff; border: 1px solid #e4e4e7; border-radius: 16px; padding: 24px; text-align: left; cursor: pointer; transition: border-color .15s, box-shadow .15s; }
-.graphly-home-starter:hover { border-color: #93b4f8; box-shadow: 0 4px 16px #18181b06; }
-.graphly-home-icon { display: inline-flex; color: #2563eb; padding: 11px; background: #eff6ff; border-radius: 12px; margin-bottom: 20px; }
-.graphly-home-starter h2 { color: #18181b; font-size: 17px; font-weight: 600; margin: 0 0 8px; }
-.graphly-home-starter p { color: #71717a; font-size: 13px; line-height: 1.7; margin: 0 0 24px; }
-.graphly-home-action { margin-top: auto; width: 100%; display: flex; align-items: center; justify-content: space-between; color: #2563eb; font-size: 13px; font-weight: 600; gap: 12px; }
-.graphly-home-projects { margin-top: 44px; }
-.graphly-home-section-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
-.graphly-home-section-heading h2 { font-size: 15px; font-weight: 600; color: #27272a; margin: 0; }
-.graphly-home-section-heading h2 span { margin-left: 7px; font-size: 12px; font-weight: 500; background: #eeeef0; padding: 2px 7px; border-radius: 6px; color: #71717a; }
-.graphly-home-section-heading p { font-size: 12px; color: #71717a; margin: 0; }
-.graphly-home-project-list { list-style: none; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; padding: 0; margin: 0; }
-.graphly-home-project { display: flex; min-width: 0; align-items: center; background: #fff; border: 1px solid #e4e4e7; border-radius: 12px; padding: 4px; }
-.graphly-home-open { display: flex; align-items: center; flex: 1; min-width: 0; gap: 14px; padding: 14px; border-radius: 8px; text-align: left; cursor: pointer; color: #71717a; }
-.graphly-home-open:hover { background: #fafafa; }
-.graphly-home-open > svg { flex-shrink: 0; }
-.graphly-home-open > span { min-width: 0; }
-.graphly-home-open strong { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 13px; font-weight: 500; color: #27272a; }
-.graphly-home-open small { display: block; font-size: 11px; margin-top: 4px; }
-.graphly-home-delete { display: inline-flex; flex-shrink: 0; align-items: center; justify-content: center; width: 44px; height: 44px; color: #71717a; border-radius: 8px; cursor: pointer; }
-.graphly-home-delete:hover { color: #dc2626; background: #fef2f2; }
+.graphly-home { position: relative; isolation: isolate; overflow: hidden; display: flex; justify-content: center; align-items: center; min-height: calc(100dvh - 56px); padding: 64px 24px; background: #fff; }
+.graphly-home-content { position: relative; z-index: 1; width: 100%; max-width: 620px; }
+.graphly-home-intro { text-align: center; margin-bottom: 26px; }
+.graphly-home-brand { display: flex; justify-content: center; margin-bottom: 26px; }
+.graphly-home-brand > span { padding: 10px 16px 10px 12px; border: 1px solid #a1a1aa; border-radius: 10px; background: #ffffffed; }
+.graphly-home-brand span > span { font-size: 25px; }
+.graphly-home-intro h1 { color: #18181b; font-size: clamp(25px, 3.6vw, 34px); font-family: 'JetBrains Mono', ui-monospace, monospace; font-weight: 700; letter-spacing: -.06em; line-height: 1.2; margin: 0 0 14px; }
+.graphly-home-intro p { color: #52525b; font-size: 14px; line-height: 1.7; max-width: 440px; margin: 0 auto; }
+.graphly-home-starters { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.graphly-home-starter { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 132px; padding: 20px 12px; border: 1px solid #a1a1aa; border-radius: 9px; text-align: center; background: #ffffffed; cursor: pointer; transition: border-color .15s, background .15s; }
+.graphly-home-starter:hover { background: #f4f4f5; border-color: #18181b; }
+.graphly-home-starter:first-child { background: #18181b; border-color: #18181b; }
+.graphly-home-starter:first-child:hover { background: #27272a; }
+.graphly-home-icon { margin-bottom: 14px; color: #2563eb; font-family: 'JetBrains Mono', monospace; font-size: 14px; font-weight: 500; }
+.graphly-home-starter:first-child .graphly-home-icon { color: #93c5fd; }
+.graphly-home-starter:nth-child(2) .graphly-home-icon { color: #7c3aed; font-size: 12px; }
+.graphly-home-starter:nth-child(3) .graphly-home-icon { color: #059669; }
+.graphly-home-starter h2 { font-size: 12px; font-weight: 750; letter-spacing: .065em; text-transform: uppercase; color: #18181b; margin: 0 0 7px; }
+.graphly-home-starter p { color: #71717a; font-size: 10px; font-family: 'JetBrains Mono', monospace; margin: 0; }
+.graphly-home-starter:first-child h2 { color: #fff; }
+.graphly-home-starter:first-child p { color: #a1a1aa; }
+.graphly-home-projects { margin-top: 32px; padding-top: 22px; border-top: 1px solid #d4d4d8; }
+.graphly-home-section-heading { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 12px; }
+.graphly-home-section-heading h2 { color: #52525b; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; }
+.graphly-home-section-heading h2 span { margin-left: 6px; }
+.graphly-home-section-heading p { color: #71717a; font-size: 10px; }
+.graphly-home-project-list { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 10px; margin: 0; padding: 0; list-style: none; }
+.graphly-home-project { display: flex; align-items: center; min-width: 0; border: 1px solid #d4d4d8; border-radius: 8px; background: #ffffffef; }
+.graphly-home-open { flex: 1; min-width: 0; text-align: left; padding: 12px; cursor: pointer; }
+.graphly-home-open strong { display: block; font-size: 12px; color: #27272a; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.graphly-home-open small { font-size: 10px; color: #71717a; }
+.graphly-home-delete { display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; flex-shrink: 0; color: #71717a; border-radius: 6px; cursor: pointer; }
+.graphly-home-delete:hover { background: #fef2f2; color: #dc2626; }
 .graphly-home button:focus-visible { outline: 3px solid #2563eb; outline-offset: 3px; }
-.graphly-home-empty { display: flex; gap: 16px; align-items: center; padding: 26px; color: #a1a1aa; border: 1px dashed #d4d4d8; border-radius: 12px; }
-.graphly-home-empty > svg { flex-shrink: 0; }
-.graphly-home-empty h3 { font-size: 13px; font-weight: 500; color: #52525b; margin: 0 0 5px; }
-.graphly-home-empty p { font-size: 12px; color: #71717a; margin: 0; line-height: 1.6; }
-@media (max-width: 640px) {
-  .graphly-home { padding: 32px 18px 40px; }
-  .graphly-home-starters, .graphly-home-project-list { grid-template-columns: 1fr; }
-  .graphly-home-starter { padding: 20px; }
-  .graphly-home-icon { margin-bottom: 14px; }
-  .graphly-home-starter p { margin-bottom: 16px; }
-  .graphly-home-section-heading { align-items: flex-start; flex-direction: column; gap: 8px; }
-}
+@media (max-width: 520px) { .graphly-home { padding: 40px 18px; } .graphly-home-starters { gap: 8px; } .graphly-home-starter { padding: 16px 6px; min-height: 124px; } .graphly-home-starter h2 { font-size: 10px; letter-spacing: .02em; } .graphly-home-starter p { font-family: inherit; font-size: 10px; } .graphly-home-icon { font-size: 12px; } .graphly-home-starter:nth-child(2) .graphly-home-icon { font-size: 10px; } .graphly-home-project-list { grid-template-columns: 1fr; } }
+@media (max-width: 340px) { .graphly-home-starters { grid-template-columns: 1fr; } .graphly-home-starter { min-height: 98px; } }
 @media (prefers-reduced-motion: reduce) { .graphly-home-starter { transition: none; } }
-/* A static grid with two compositor-animated traces keeps the landing light. */
-.graphly-home { position: relative; isolation: isolate; overflow: hidden; background: #fafafa; }
-.graphly-home-background { position: absolute; width: 100%; height: min(100%, 850px); inset: 0; z-index: -1; pointer-events: none; opacity: .5; mask-image: linear-gradient(to bottom, #000, transparent 95%); }
-.graphly-home-wave { fill: none; stroke: #93b4f8; stroke-width: 1.5; animation: graphly-drift 24s ease-in-out infinite alternate; }
-.graphly-home-wave-secondary { stroke: #b7bddd; animation-duration: 32s; animation-direction: alternate-reverse; }
-.graphly-home-intro { text-align: center; margin: 0 auto 32px; }
-.graphly-home-brand { display: flex; justify-content: center; margin-bottom: 24px; }
-.graphly-home-brand span > span { font-size: 23px; }
-.graphly-home-intro h1 { margin-bottom: 12px; font-size: clamp(34px, 5vw, 48px); }
-.graphly-home-intro > p:last-child { margin: 0 auto; }
-.graphly-home-starter { background: #ffffffed; }
-.graphly-home-projects { padding-top: 12px; }
-.graphly-home-empty { background: #fafafaad; font-size: 13px; color: #71717a; }
-@keyframes graphly-drift { from { transform: translateX(-28px) translateY(-12px); } to { transform: translateX(28px) translateY(12px); } }
-@media (prefers-reduced-motion: reduce) { .graphly-home-wave { animation: none; } }
-
-.graphly-home-icon{background:transparent;padding:0;color:#718099;font-family:ui-monospace,monospace;font-size:14px;border-radius:0}.graphly-home-starter{padding:22px}.graphly-home-brand{display:none}
-
-@media(max-width:600px){.graphly-home-starter{padding:16px 20px;display:grid;grid-template-columns:1fr auto;column-gap:12px}.graphly-home-icon{grid-column:2;grid-row:1/3;margin:0;align-self:center;font-size:12px}.graphly-home-starter h2{grid-column:1;margin-bottom:2px}.graphly-home-starter p{grid-column:1;margin-bottom:6px}.graphly-home-action{grid-column:1/-1;font-size:12px}.graphly-home-intro{margin-bottom:24px}.graphly-home-projects{margin-top:28px}}

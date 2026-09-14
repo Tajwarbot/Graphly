@@ -1,12 +1,12 @@
 import { parse } from 'mathjs';
-import { splitRestrictions } from './expressionSyntax.js';
+import { splitRestrictions, splitRelation, normalizeMath, splitComparisons, splitConditions, scalar } from './expressionSyntax.js';
 
 const functions = new Set(['sin', 'cos', 'tan', 'asin', 'acos', 'atan', 'atan2', 'sinh', 'cosh', 'tanh', 'sqrt', 'cbrt', 'abs', 'exp', 'log', 'log10', 'log2', 'min', 'max', 'floor', 'ceil', 'round', 'sign']);
 const symbols = new Set(['x', 'y', 'pi', 'e']);
 const cache = new Map();
 
 export function isInequality(expression) {
-    return typeof expression === 'string' && /[<>≤≥]/.test(expression);
+    return typeof expression === 'string' && /[<>]/.test(splitRelation(normalizeMath(expression))?.operator || '');
 }
 
 /** Each condition is a finite scalar residual <= 0; chains represent intersection. */
@@ -16,13 +16,14 @@ export function compileInequality(expression) {
     if (cache.has(raw)) return cache.get(raw);
     const {base,restrictions}=splitRestrictions(raw);
     if(restrictions.length){
-        const constraints=[base,...restrictions.flatMap(r=>r.split(','))].flatMap(r=>compileInequality(r).constraints);
+        const constraints=[base,...restrictions.flatMap(splitConditions)].flatMap(r=>compileInequality(r).constraints);
         return {constraints,contains(x,y){return constraints.every(c=>{const v=c.evaluate(x,y);return Number.isFinite(v)&&(c.strict?v<0:v<=0);});}};
     }
-    const parts = raw.split(/(<=|>=|<|>)/);
+    const parts = splitComparisons(raw);
     if (parts.length < 3 || parts.length > 9 || parts.length % 2 !== 1) throw new Error('Use an inequality such as y > x or -1 < y < 1.');
     const terms = parts.filter((_, index) => index % 2 === 0).map(term => {
         if (!term.trim()) throw new Error('Both sides of an inequality need an expression.');
+        if (term.includes('{')) { const evaluate=scalar(term,['x','y']); return (x,y)=>evaluate({x,y}); }
         const ast = parse(term);
         let count = 0;
         ast.traverse(node => {

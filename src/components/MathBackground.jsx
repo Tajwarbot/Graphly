@@ -37,7 +37,7 @@ export function MathBackground() {
             const gridSize = 44;
             ctx.lineWidth = 1;
             ctx.strokeStyle = 'rgba(0, 0, 0, 0.035)';
-            
+
             for (let x = 0; x <= width; x += gridSize) {
                 ctx.beginPath();
                 ctx.moveTo(x, 0);
@@ -91,7 +91,7 @@ export function MathBackground() {
             for (let i = 0; i < 6; i++) {
                 const sampleX = ((t * 36 + i * (width / 5)) % (width + 80)) - 40;
                 const sampleY = centerY + Math.sin(sampleX * 0.007 + t) * 65 + Math.cos(sampleX * 0.014 - t * 0.6) * 35;
-                
+
                 // Outer ring
                 ctx.fillStyle = '#FFFFFF';
                 ctx.strokeStyle = '#2563EB';

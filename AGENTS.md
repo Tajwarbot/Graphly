@@ -63,4 +63,13 @@ See `mcp-server/README.md` for setup details. Run `npm test --prefix mcp-server`
 
 ## Extended equation input
 
-The local viewer also accepts parametric tuples in t (curves) or u,v (3D surfaces), with trailing ranges, such as `(cos(t),sin(t),t/3){0<t<4*pi}`. Use `(3*cos(t),2*sin(t)){0<t<2*pi}` for a 2D ellipse. Use full equations with restrictions (`z=x+y{x>0}`), shaded 2D inequalities (`x^2+y^2<=9`), or boundaries of bounded 3D solids (`x^2+y^2+z^2<=9{z>0}`). Parametric ranges default to 0–1. Free parameter sliders, general symbolic solving and piecewise notation are not implemented. Do not claim complete Desmos compatibility.
+The local viewer also accepts parametric tuples in t (curves) or u,v (3D surfaces), with trailing ranges, such as `(cos(t),sin(t),t/3){0<t<4*pi}`. Use `(3*cos(t),2*sin(t)){0<t<2*pi}` for a 2D ellipse. Use full equations with restrictions (`z=x+y{x>0}`), shaded 2D inequalities (`x^2+y^2<=9`), or boundaries of bounded 3D solids (`x^2+y^2+z^2<=9{z>0}`). Parametric ranges default to 0–1. The local sidebar supports named finite constants such as a=2 and dependent definitions, with basic numeric sliders. Explicit piecewise expressions such as y={x<0:-x,x>=0:x} and z={x<0:sin(y),cos(y)} are supported, including trailing restrictions. The chatbot can simplify, differentiate and solve real numeric-coefficient polynomials of degree at most two; general symbolic solving is not implemented. Piecewise operands are supported in 2D/3D inequalities. Scene tools resolve new and existing parameter definitions atomically; setParameter updates values and slider bounds. Sliders support explicit Play/Pause. Do not claim complete Desmos compatibility.
+
+
+## Reusable definitions and lists
+
+The local viewer supports reusable function definitions such as `f(t)=t^2` and `g(u,v)=sin(u)+cos(v)`, nested calls, and numeric parameter coefficients. A one-argument function graphs in 2D; a two-argument function graphs as a height surface in 3D. Function definitions remain callable from other equations. Recursion and unbounded expansion are rejected.
+
+Numeric lists such as `a=[1,2,3]`, integer unit ranges `[1...5]`, and one-based indexing `a[2]` are supported. Equations containing lists expand elementwise; combined lists must have equal lengths. Lists are bounded to100 elements. Do not generate nested lists or comprehensions.
+
+Symbolic tools also support multivariable simplification/partial derivatives and polynomial integration through degree8 with symbolic coefficients. Integration returns an antiderivative plus an arbitrary-constant/domain note. This is not unrestricted integration or general equation solving.

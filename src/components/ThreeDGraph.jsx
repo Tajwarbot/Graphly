@@ -1,9 +1,13 @@
+import { expressionEnvironment, parameterDefinition } from '../lib/expressionEnvironment.js';
+import { ParameterSlider } from './ParameterSlider.jsx';
+import { MathExpression } from './MathExpression.jsx';
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import { startSurfaceJob } from '../lib/surfaceJob.js';
 import { makeSurface } from '../lib/graphState.js';
-import { RotateCcw, Box, Eye, EyeOff, Sliders, Play, Plus, Trash2, Layers, ChevronDown, ChevronRight, Menu, X } from 'lucide-react';
+import { RotateCcw, Box, Eye, EyeOff, Sliders, Play, Plus, Trash2, Layers, ChevronDown, ChevronRight, X } from 'lucide-react';
 
 const PRESETS = [
     { name: 'Sphere', expr: 'x^2 + y^2 + z^2 = 9' },
@@ -46,7 +50,13 @@ export function ThreeDGraph({ initialEquation, surfaces: controlledSurfaces, onS
     const lastSurfaceId = useRef(surfaces.at(-1)?.id);
     const [meshResults, setMeshResults] = useState([]);
     const [isBuilding, setIsBuilding] = useState(false);
-    const equationsKey = JSON.stringify(surfaces.filter(s => s.visible).map(s => ({ id: s.id, equation: s.equation })));
+    const [buildError, setBuildError] = useState(null);
+    const [buildAttempt, setBuildAttempt] = useState(0);
+    const environment = expressionEnvironment(surfaces);
+    const equationsKey = JSON.stringify(surfaces.filter(s => s.visible).flatMap(s => {
+        try { return environment.plotExpressions(s.equation,3).map(equation=>({id:s.id,equation})); }
+        catch { return {id:s.id, equation:s.equation}; }
+    }));
 
     const [activeTab, setActiveTab] = useState('surfaces'); // 'surfaces' | 'settings'
     const [expandedSurfaceId, setExpandedSurfaceId] = useState(surfaces[0]?.id);
@@ -59,26 +69,23 @@ export function ThreeDGraph({ initialEquation, surfaces: controlledSurfaces, onS
     const [heightScale, setHeightScale] = useState(1);
     const [showAxes, setShowAxes] = useState(true);
     const [showGrid, setShowGrid] = useState(true);
+    const [showXZGrid, setShowXZGrid] = useState(true);
 
     // Cancel obsolete meshes on every edit; compilation and sampling stay off the UI thread.
     useEffect(() => {
-        const worker = new Worker(new URL('../lib/surface.worker.js', import.meta.url), { type: 'module' });
-        const timer = setTimeout(() => {
-            setIsBuilding(true);
-            worker.postMessage({ surfaces: JSON.parse(equationsKey), range: JSON.parse(domainKey), resolution: gridSegments });
-        }, 140);
-        worker.onmessage = ({ data }) => {
-            setMeshResults(data); setIsBuilding(false);
-            const newest = JSON.parse(equationsKey).at(-1)?.id;
-            if (newest && newest !== lastSurfaceId.current) setExpandedSurfaceId(newest);
-            lastSurfaceId.current = newest;
-        };
-        worker.onerror = () => {
-            setMeshResults(JSON.parse(equationsKey).map(s => ({ id: s.id, error: 'Unable to build this surface. Try a lower mesh density.' })));
-            setIsBuilding(false);
-        };
-        return () => { clearTimeout(timer); worker.terminate(); };
-    }, [equationsKey, domainKey, gridSegments]);
+        return startSurfaceJob({
+            createWorker: () => new Worker(new URL('../lib/surface.worker.js', import.meta.url), { type: 'module' }),
+            payload: { surfaces: JSON.parse(equationsKey), range: JSON.parse(domainKey), resolution: gridSegments },
+            onStart: () => { setIsBuilding(true); setBuildError(null); },
+            onResult: (data) => {
+                setMeshResults(data); setIsBuilding(false);
+                const newest = JSON.parse(equationsKey).at(-1)?.id;
+                if (newest && newest !== lastSurfaceId.current) setExpandedSurfaceId(newest);
+                lastSurfaceId.current = newest;
+            },
+            onError: (message) => { setBuildError(message); setIsBuilding(false); }
+        });
+    }, [equationsKey, domainKey, gridSegments, buildAttempt]);
 
     // Build or update all 3D surface meshes in scene
     const updateSurfaces = useCallback(() => {
@@ -100,10 +107,9 @@ export function ThreeDGraph({ initialEquation, surfaces: controlledSurfaces, onS
         }
 
 
-        surfaces.forEach((surf) => {
-            if (!surf.visible) return;
-
-            const result = meshResults.find(r => r.id === surf.id);
+        meshResults.forEach((result) => {
+            const surf = surfaces.find(s => s.id === result.id);
+            if (!surf?.visible) return;
             if (!result?.vertices?.length) return;
             const positions = new Float32Array(result.vertices.length);
             for (let i = 0; i < positions.length; i += 3) {
@@ -225,6 +231,12 @@ export function ThreeDGraph({ initialEquation, surfaces: controlledSurfaces, onS
         gridHelper.name = 'referenceGrid';
         scene.add(gridHelper);
 
+        // Mathematical XZ plane (y=0) maps to Three.js XY with our z-up mapping.
+        const xzGrid = new THREE.GridHelper(10, 10, 0x18181B, 0xD4D4D8);
+        xzGrid.rotation.x = Math.PI / 2;
+        xzGrid.name = 'xzReferenceGrid';
+        scene.add(xzGrid);
+
         // Cartesian Axes
         const axesGroup = new THREE.Group();
         axesGroup.name = 'cartesianAxes';
@@ -337,10 +349,12 @@ export function ThreeDGraph({ initialEquation, surfaces: controlledSurfaces, onS
         if (!sceneRef.current) return;
         const grid = sceneRef.current.getObjectByName('referenceGrid');
         if (grid) grid.visible = showGrid;
+        const xzGrid = sceneRef.current.getObjectByName('xzReferenceGrid');
+        if (xzGrid) xzGrid.visible = showXZGrid;
         const axes = sceneRef.current.getObjectByName('cartesianAxes');
         if (axes) axes.visible = showAxes;
         requestRenderRef.current();
-    }, [showGrid, showAxes]);
+    }, [showGrid, showXZGrid, showAxes]);
 
     // Redraw surfaces on change
     useEffect(() => {
@@ -401,14 +415,14 @@ export function ThreeDGraph({ initialEquation, surfaces: controlledSurfaces, onS
                     {/* Active Surfaces Legend HUD */}
                     <div className="absolute top-4 left-4 bg-white/95 backdrop-blur-xs border border-neutral-300 rounded-xl p-3 pointer-events-auto z-10 max-w-xs shadow-sm">
                         <div className="text-[10px] font-mono font-semibold uppercase tracking-wider text-neutral-600 mb-1.5 flex items-center justify-between">
-                            <span>Active 3D Surfaces ({surfaces.filter(s => s.visible).length})</span>
+                            <span>Active expressions ({surfaces.filter(s => s.visible).length})</span>
                         </div>
                         <div className="space-y-1.5 max-h-32 overflow-y-auto">
                             {surfaces.map((s) => (
                                 <div key={s.id} className="flex items-center gap-2 text-xs">
                                     <div className="w-2.5 h-2.5 rounded-full ring-1 ring-white shrink-0 shadow-2xs" style={{ backgroundColor: s.color }} />
-                                    <span className={`font-mono text-[11px] truncate ${s.visible ? 'text-neutral-900 font-semibold' : 'text-neutral-400 line-through'}`}>
-                                        {s.equation}
+                                    <span className={`text-sm min-w-0 overflow-x-auto py-1 ${s.visible ? 'text-neutral-900 font-semibold' : 'text-neutral-400 line-through'}`}>
+                                        <MathExpression expression={s.equation} />
                                     </span>
                                 </div>
                             ))}
@@ -427,7 +441,7 @@ export function ThreeDGraph({ initialEquation, surfaces: controlledSurfaces, onS
                             className="bg-white/95 backdrop-blur-xs border border-neutral-300 rounded-lg min-w-11 min-h-11 p-2 text-neutral-800 hover:bg-neutral-100 shadow-sm transition-colors cursor-pointer"
                             aria-label="Toggle Surfaces Panel"
                         >
-                            {isSidebarOpen ? <X size={16} /> : <Menu size={16} />}
+                            {isSidebarOpen ? 'Close' : 'Surfaces'}
                         </button>
                     </div>
 
@@ -489,17 +503,21 @@ export function ThreeDGraph({ initialEquation, surfaces: controlledSurfaces, onS
                     {activeTab === 'surfaces' ? (
                         <>
                             {/* Action Row */}
-                            <div className="flex items-center justify-between">
+                            <div className="flex items-center justify-between gap-3">
                                 <span className="text-xs font-bold uppercase tracking-wider text-neutral-700">Equations & Layers</span>
-                                <span role="status" className="text-xs text-neutral-500">{isBuilding ? 'Rendering…' : ''}</span>
                                 <button
                                     onClick={() => addSurface()}
-                                    className="rounded-md bg-neutral-900 text-white hover:bg-neutral-800 px-2.5 py-1 text-xs font-semibold flex items-center gap-1 transition-colors cursor-pointer shadow-2xs"
+                                    className="rounded-md bg-neutral-900 text-white hover:bg-neutral-800 px-2.5 py-1 text-xs font-semibold flex items-center gap-1 shrink-0 whitespace-nowrap transition-colors cursor-pointer shadow-2xs"
                                 >
                                     <Plus size={12} /> Add Surface
                                 </button>
                             </div>
 
+                            {isBuilding && <p role="status" className="text-xs text-neutral-500">Rendering…</p>}
+                            {buildError && <div role="alert" className="rounded-lg border border-red-200 bg-red-50 p-3 text-xs text-red-800">
+                                <p>{buildError}</p>
+                                <button className="mt-2 rounded-md border border-red-300 bg-white px-3 py-1.5 font-semibold" onClick={() => setBuildAttempt(n => n + 1)}>Retry rendering</button>
+                            </div>}
                             {surfaces.length === 0 && <p className="rounded-lg bg-blue-50 p-3 text-sm text-blue-800">Start with a preset below, or add a surface and enter an equation.</p>}
                             {/* Surface Cards List */}
                             <div className="space-y-3">
@@ -546,77 +564,72 @@ export function ThreeDGraph({ initialEquation, surfaces: controlledSurfaces, onS
                                                     />
                                                 </div>
 
+                                                <ParameterSlider settings={s.parameterSettings} onSettingsChange={parameterSettings => updateSurface(s.id, {parameterSettings})} equation={s.equation} onChange={equation => updateSurface(s.id, {equation})} />
+                                                {parameterDefinition(s.equation) && environment.errors[parameterDefinition(s.equation).name] && <p role="alert">{environment.errors[parameterDefinition(s.equation).name]}</p>}
                                                 {meshResults.find(r => r.id === s.id)?.error && (
                                                     <p role="alert" className="text-xs text-red-700">{meshResults.find(r => r.id === s.id).error}</p>
                                                 )}
                                                 {meshResults.find(r => r.id === s.id)?.vertices?.length === 0 && (
                                                     <p role="status" className="text-xs text-amber-700">No geometry found in this domain. Check the equation, restrictions, and parameter bounds; try a tighter domain for small features.</p>
                                                 )}
-                                                {/* Color Picker Swatches */}
-                                                <div>
-                                                    <span className="text-xs font-medium text-neutral-700 mb-1.5 block">Surface Color</span>
-                                                    <div className="flex flex-wrap gap-2">
-                                                        {SURFACE_COLORS.map(c => (
-                                                            <button
-                                                                key={c.hex}
-                                                                onClick={() => updateSurface(s.id, { color: c.hex })}
-                                                                className={`w-6 h-6 rounded-md border border-black/10 transition-transform hover:scale-110 cursor-pointer ${
-                                                                    s.color === c.hex ? 'ring-2 ring-neutral-900 ring-offset-2 scale-110' : ''
-                                                                }`}
-                                                                style={{ backgroundColor: c.hex }}
-                                                                title={c.name}
+                                                <details className="group border-t border-neutral-200 pt-2">
+                                                    <summary className="min-h-11 flex items-center justify-between cursor-pointer text-xs font-semibold text-neutral-700 select-none">
+                                                        <span>Appearance</span>
+                                                        <ChevronDown size={14} className="text-neutral-400 transition-transform group-open:rotate-180" />
+                                                    </summary>
+                                                    <div className="space-y-3 pt-2">
+                                                        <div>
+                                                            <span className="text-xs font-medium text-neutral-700 mb-1.5 block">Surface Color</span>
+                                                            <div className="flex flex-wrap gap-2">
+                                                                {SURFACE_COLORS.map(c => (
+                                                                    <button
+                                                                        key={c.hex}
+                                                                        type="button"
+                                                                        aria-label={`Set surface color to ${c.name}`}
+                                                                        onClick={() => updateSurface(s.id, { color: c.hex })}
+                                                                        className={`min-w-11 min-h-11 rounded-md border border-black/10 transition-transform hover:scale-105 cursor-pointer ${s.color === c.hex ? 'ring-2 ring-neutral-900 ring-offset-2' : ''}`}
+                                                                        style={{ backgroundColor: c.hex }}
+                                                                        title={c.name}
+                                                                    />
+                                                                ))}
+                                                            </div>
+                                                        </div>
+                                                        <div>
+                                                            <span className="text-xs font-medium text-neutral-700 mb-1.5 block">Shading & Facets</span>
+                                                            <div className="flex bg-neutral-100 p-0.5 rounded-lg border border-neutral-200">
+                                                                {[
+                                                                    ['both', 'Faceted'],
+                                                                    ['solid', 'Solid'],
+                                                                    ['wireframe', 'Wire']
+                                                                ].map(([mode, label]) => (
+                                                                    <button
+                                                                        key={mode}
+                                                                        type="button"
+                                                                        onClick={() => updateSurface(s.id, { wireframeMode: mode })}
+                                                                        className={`flex-1 min-h-11 text-[11px] font-semibold rounded-md transition-all cursor-pointer ${s.wireframeMode === mode ? 'bg-white text-neutral-900 shadow-2xs' : 'text-neutral-600 hover:text-neutral-900'}`}
+                                                                    >
+                                                                        {label}
+                                                                    </button>
+                                                                ))}
+                                                            </div>
+                                                        </div>
+                                                        <div>
+                                                            <div className="flex justify-between text-xs font-medium text-neutral-600 mb-1">
+                                                                <span>Surface Opacity</span>
+                                                                <span className="font-mono">{Math.round(s.opacity * 100)}%</span>
+                                                            </div>
+                                                            <input
+                                                                type="range"
+                                                                min="0.1"
+                                                                max="1.0"
+                                                                step="0.05"
+                                                                value={s.opacity}
+                                                                onChange={(e) => updateSurface(s.id, { opacity: parseFloat(e.target.value) })}
+                                                                className="w-full min-h-11 accent-neutral-900 cursor-pointer"
                                                             />
-                                                        ))}
+                                                        </div>
                                                     </div>
-                                                </div>
-
-                                                {/* Shading / Wireframe Mode */}
-                                                <div>
-                                                    <span className="text-xs font-medium text-neutral-700 mb-1.5 block">Shading & Facets</span>
-                                                    <div className="flex bg-neutral-100 p-0.5 rounded-lg border border-neutral-200">
-                                                        <button
-                                                            onClick={() => updateSurface(s.id, { wireframeMode: 'both' })}
-                                                            className={`flex-1 py-1 text-[11px] font-semibold rounded-md transition-all cursor-pointer ${
-                                                                s.wireframeMode === 'both' ? 'bg-white text-neutral-900 shadow-2xs' : 'text-neutral-600 hover:text-neutral-900'
-                                                            }`}
-                                                        >
-                                                            Faceted
-                                                        </button>
-                                                        <button
-                                                            onClick={() => updateSurface(s.id, { wireframeMode: 'solid' })}
-                                                            className={`flex-1 py-1 text-[11px] font-semibold rounded-md transition-all cursor-pointer ${
-                                                                s.wireframeMode === 'solid' ? 'bg-white text-neutral-900 shadow-2xs' : 'text-neutral-600 hover:text-neutral-900'
-                                                            }`}
-                                                        >
-                                                            Solid
-                                                        </button>
-                                                        <button
-                                                            onClick={() => updateSurface(s.id, { wireframeMode: 'wireframe' })}
-                                                            className={`flex-1 py-1 text-[11px] font-semibold rounded-md transition-all cursor-pointer ${
-                                                                s.wireframeMode === 'wireframe' ? 'bg-white text-neutral-900 shadow-2xs' : 'text-neutral-600 hover:text-neutral-900'
-                                                            }`}
-                                                        >
-                                                            Wire
-                                                        </button>
-                                                    </div>
-                                                </div>
-
-                                                {/* Opacity Slider */}
-                                                <div>
-                                                    <div className="flex justify-between text-xs font-medium text-neutral-600 mb-1">
-                                                        <span>Surface Opacity</span>
-                                                        <span className="font-mono">{Math.round(s.opacity * 100)}%</span>
-                                                    </div>
-                                                    <input
-                                                        type="range"
-                                                        min="0.1"
-                                                        max="1.0"
-                                                        step="0.05"
-                                                        value={s.opacity}
-                                                        onChange={(e) => updateSurface(s.id, { opacity: parseFloat(e.target.value) })}
-                                                        className="w-full accent-neutral-900 cursor-pointer"
-                                                    />
-                                                </div>
+                                                </details>
 
                                                 {/* Delete Button */}
                                                 {surfaces.length > 0 && (
@@ -635,24 +648,25 @@ export function ThreeDGraph({ initialEquation, surfaces: controlledSurfaces, onS
                                 ))}
                             </div>
 
-                            {/* Preset Quick Loader */}
-                            <div className="pt-2 border-t border-neutral-200">
-                                <div className="text-[11px] font-semibold uppercase tracking-wider text-neutral-500 mb-2">
-                                    Add From Presets
-                                </div>
-                                <div className="grid grid-cols-2 gap-2">
+                            <details className="group pt-2 border-t border-neutral-200">
+                                <summary className="min-h-11 flex items-center justify-between cursor-pointer text-xs font-semibold uppercase tracking-wider text-neutral-600 select-none">
+                                    <span>Add from presets</span>
+                                    <ChevronDown size={14} className="text-neutral-400 transition-transform group-open:rotate-180" />
+                                </summary>
+                                <div className="grid grid-cols-2 gap-2 pt-2">
                                     {PRESETS.map((p) => (
                                         <button
                                             key={p.name}
+                                            type="button"
                                             onClick={() => addSurface(p.expr)}
-                                            className="p-2 border border-neutral-200 rounded-lg bg-white text-left hover:border-neutral-400 hover:bg-neutral-50/70 transition-all cursor-pointer shadow-2xs"
+                                            className="min-h-11 p-2 border border-neutral-200 rounded-lg bg-white text-left hover:border-neutral-400 hover:bg-neutral-50/70 transition-all cursor-pointer shadow-2xs"
                                         >
                                             <div className="font-semibold text-xs text-neutral-900">{p.name}</div>
                                             <div className="text-[10px] font-mono text-neutral-500 truncate mt-0.5">{p.expr}</div>
                                         </button>
                                     ))}
                                 </div>
-                            </div>
+                            </details>
                         </>
                     ) : (
                         /* Global 3D Scene Settings */
@@ -718,13 +732,17 @@ export function ThreeDGraph({ initialEquation, surfaces: controlledSurfaces, onS
                                     />
                                 </label>
                                 <label className="flex items-center justify-between cursor-pointer text-xs font-semibold text-neutral-800">
-                                    <span>Show Ground Reference Grid</span>
+                                    <span>Show XY Plane Grid</span>
                                     <input
                                         type="checkbox"
                                         checked={showGrid}
                                         onChange={(e) => setShowGrid(e.target.checked)}
                                         className="rounded border border-neutral-300 text-neutral-900 cursor-pointer"
                                     />
+                                </label>
+                                <label className="flex items-center justify-between cursor-pointer text-xs font-semibold text-neutral-800">
+                                    <span>Show XZ Plane Grid</span>
+                                    <input type="checkbox" checked={showXZGrid} onChange={(e) => setShowXZGrid(e.target.checked)} className="rounded border border-neutral-300 text-neutral-900 cursor-pointer" />
                                 </label>
                             </div>
                         </div>

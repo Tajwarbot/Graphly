@@ -18,8 +18,8 @@ describe('App rendering', () => {
         const html = renderToString(<Logo size={28} />);
         expect(html).toContain('Graphly');
         expect(html).not.toContain('Plotter');
-        expect(html).toContain('<svg');
-        expect(html).not.toContain('<img');
+        expect(html).toContain('/graphly-logo.png');
+        expect(html).toContain('<img');
     });
 
     it('renders lightweight MathBackground canvas', () => {

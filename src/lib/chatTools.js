@@ -138,6 +138,16 @@ const style = {
 };
 AI_TOOLS_DECLARATION[0].functionDeclarations.push(
     {
+        name:'setParameter',
+        description:'Set an existing numeric parameter by its layer ID. Optionally configure its slider min, max, and positive step. Use IDs from graph context; never guess an ID. Does not create a new parameter.',
+        parameters:{type:'OBJECT',properties:{layerId:string,value:number,min:number,max:number,step:number},required:['layerId']}
+    },
+    {
+        name: 'add2DScene',
+        description: 'Append a complete 2D artwork atomically as 1–12 named colored layers: explicit/implicit equations, inequalities or parametric tuples. Preserve existing work. Use restrictions to trim strokes and inequalities for filled regions.',
+        parameters: {type:'OBJECT',properties:{layers:{type:'ARRAY',items:{type:'OBJECT',properties:{equation:string,...style},required:['equation']}},bounds:{type:'OBJECT',properties:{xMin:number,xMax:number,yMin:number,yMax:number},required:['xMin','xMax','yMin','yMax']}},required:['layers']}
+    },
+    {
         name: 'addScene',
         description:
             'Append a complete 3D design with 1–12 named, colored surfaces atomically. Derive equations for component shapes. Use implicit equations for closed objects and vertical planes. Supply camera/bounds to frame the design. Never replace unrelated work.',
@@ -185,3 +195,8 @@ AI_TOOLS_DECLARATION[0].functionDeclarations.push(
         }
     }
 );
+
+AI_TOOLS_DECLARATION[0].functionDeclarations.push({
+    name:'symbolicMath', description:'Simplify or partially differentiate multivariable expressions, integrate polynomials through degree 8 with symbolic coefficients, or solve a numeric-coefficient linear/quadratic equation over the reals. Returns results without modifying the graph. Unsupported problems return errors.',
+    parameters:{type:'OBJECT', properties:{operation:{type:'STRING',enum:['simplify','differentiate','integrate','solve']}, expression:{type:'STRING'}, variable:{type:'STRING'}}, required:['operation','expression']}
+});

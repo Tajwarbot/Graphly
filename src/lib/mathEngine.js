@@ -1,4 +1,4 @@
-import { compileParametric, splitRestrictions, compileRestrictions, allowedBy, scalar } from './expressionSyntax.js';
+import { compileParametric, splitRestrictions, compileRestrictions, allowedBy, scalar, splitEquation } from './expressionSyntax.js';
 import { compileInequality, isInequality } from './inequalityRegions.js';
 
 export const calculateNiceTicks = (min, max, maxTicks = 8) => {
@@ -553,8 +553,9 @@ export function compileMathFunction(expression) {
         let isImplicit = false;
         let evaluateExpr = raw;
 
-        if (raw.includes('=')) {
-            const parts = raw.split('=');
+        if (splitEquation(raw).length > 1) {
+            const parts = splitEquation(raw);
+            if (parts.length !== 2) return null;
             if (parts.length === 2) {
                 const left = parts[0].trim();
                 const right = parts[1].trim();
@@ -621,6 +622,16 @@ export function compileMathFunction(expression) {
 export const generateFunctionPoints = (equation, xMin = -10, xMax = 10, resolution = 200) => {
     try {
         const points = [];
+        if (equation.includes('{')) {
+            const fn = compileMathFunction(equation);
+            if (!fn || fn.type !== 'explicit') throw new Error('Enter an explicit piecewise function.');
+            const count = Math.min(2000, Math.max(20, resolution));
+            for (let i = 0; i <= count; i++) {
+                const x = xMin + (xMax - xMin) * i / count, y = fn(x);
+                points.push({ x, y: Number.isFinite(y) ? y : null });
+            }
+            return points;
+        }
         // Preserve the bounded expression parser and its positional errors.
         // Strip only an explicit dependent-variable prefix, never an implicit equation.
         let expression = equation;
