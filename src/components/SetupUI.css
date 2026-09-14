@@ -1,0 +1,44 @@
+.graphly-setup { max-width: 860px; margin: 0 auto; padding: 48px 24px 64px; }
+.graphly-setup button, .graphly-modal button, .graphly-modal a { min-height: 44px; }
+.graphly-setup button:focus-visible, .graphly-modal :is(button,a,input,textarea):focus-visible { outline: 3px solid #2563eb; outline-offset: 2px; }
+.graphly-setup-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin: 24px 0 28px; }
+.graphly-setup h1 { font-size: 28px; font-weight: 600; letter-spacing: -.035em; color: #18181b; margin: 0 0 8px; }
+.graphly-setup p, .graphly-modal p { font-size: 13px; line-height: 1.7; color: #71717a; }
+.graphly-setup-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 24px; }
+.graphly-import-card { display: flex; flex-direction: column; text-align: left; align-items: flex-start; justify-content: space-between; gap: 24px; min-height: 190px; padding: 24px; border: 1px solid #e4e4e7; border-radius: 16px; background: white; cursor: pointer; }
+.graphly-import-card:hover { border-color: #93b4f8; }
+.graphly-import-card > svg { color: #2563eb; }
+.graphly-import-card strong { display: block; font-size: 16px; font-weight: 600; color: #27272a; }
+.graphly-import-card small { display: block; font-size: 12px; color: #71717a; margin-top: 8px; }
+.graphly-import-card img { height: 100px; width: 100%; object-fit: contain; }
+.graphly-button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 10px 16px; min-height: 44px; border: 1px solid #e4e4e7; border-radius: 9px; background: white; color: #3f3f46; font-size: 13px; font-weight: 500; cursor: pointer; text-decoration: none; }
+.graphly-button:hover { background: #f4f4f5; }
+.graphly-button-primary { color: white; background: #2563eb; border-color: #2563eb; }
+.graphly-button-primary:hover { background: #1d4ed8; }
+.graphly-button:disabled { opacity: .5; cursor: not-allowed; }
+.graphly-button-danger { color: #dc2626; border-color: transparent; }
+.graphly-modal-backdrop { position: fixed; inset: 0; z-index: 70; padding: 20px; display: flex; align-items: center; justify-content: center; background: #18181b66; backdrop-filter: blur(3px); }
+.graphly-modal { background: white; width: 100%; max-width: 520px; max-height: calc(100dvh - 40px); overflow-y: auto; border: 1px solid #e4e4e7; border-radius: 18px; box-shadow: 0 24px 80px #18181b26; }
+.graphly-modal-header { display: flex; align-items: center; justify-content: space-between; padding: 18px 22px; border-bottom: 1px solid #f0f0f2; }
+.graphly-modal-header h2 { font-size: 17px; font-weight: 600; color: #18181b; margin: 0; }
+.graphly-icon-button { display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; border-radius: 8px; color: #71717a; cursor: pointer; }
+.graphly-icon-button:hover { background: #f4f4f5; }
+.graphly-modal-body { padding: 22px; display: flex; flex-direction: column; gap: 18px; }
+.graphly-modal-body label { font-size: 13px; color: #3f3f46; font-weight: 500; display: block; margin-bottom: 8px; }
+.graphly-modal-input { width: 100%; min-height: 44px; border: 1px solid #d4d4d8; border-radius: 9px; padding: 12px; color: #27272a; font-size: 14px; background: white; }
+.graphly-key-input { position: relative; }
+.graphly-key-input input { padding-right: 48px; }
+.graphly-key-input button { position: absolute; right: 2px; top: 1px; }
+.graphly-provider { display: flex; align-items: center; justify-content: space-between; padding: 12px 14px; background: #fafafa; border: 1px solid #e4e4e7; border-radius: 10px; font-size: 13px; color: #3f3f46; }
+.graphly-provider span { color: #2563eb; font-size: 12px; }
+.graphly-modal-footer { display: flex; align-items: center; justify-content: flex-end; gap: 8px; padding: 18px 22px; border-top: 1px solid #f0f0f2; flex-wrap: wrap; }
+.graphly-modal-footer .graphly-button-danger { margin-right: auto; }
+.graphly-setup-error { color: #b91c1c !important; font-size: 13px; }
+.graphly-setup-success { color: #047857 !important; font-size: 13px; }
+.graphly-key-help { background: #eff6ff; border-radius: 10px; padding: 14px; }
+.graphly-key-help p { color: #52525b; margin: 0 0 10px; }
+.graphly-key-help a { color: #2563eb; display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 500; text-decoration: underline; }
+.graphly-csv-upload { display: flex; flex-direction: column; gap: 8px; font-size: 13px; }
+.graphly-csv-upload input { max-width: 100%; min-height: 44px; font-size: 12px; }
+.graphly-csv-upload input::file-selector-button { padding: 10px 12px; background: #f4f4f5; border: 0; border-radius: 8px; margin-right: 8px; min-height: 44px; }
+@media (max-width: 600px) { .graphly-setup { padding: 24px 18px 40px; } .graphly-setup-heading { align-items: flex-start; flex-direction: column; } .graphly-setup-actions { grid-template-columns: 1fr; } .graphly-modal-backdrop { padding: 12px; } .graphly-modal { max-height: calc(100dvh - 24px); } .graphly-modal-body { padding: 18px; } .graphly-modal-input { font-size: 16px; } }

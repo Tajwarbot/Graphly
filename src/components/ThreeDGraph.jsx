@@ -35,6 +35,7 @@ export function ThreeDGraph({ initialEquation, surfaces: controlledSurfaces, onS
     const canvasRef = useRef(null);
     const sceneRef = useRef(null);
     const rendererRef = useRef(null);
+    const requestRenderRef = useRef(() => {});
     const cameraRef = useRef(null);
     const controlsRef = useRef(null);
     const surfacesGroupRef = useRef(null);
@@ -112,17 +113,35 @@ export function ThreeDGraph({ initialEquation, surfaces: controlledSurfaces, onS
             }
             const raw = new THREE.BufferGeometry();
             raw.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+            if (result.kind === 'curve' || result.kind === 'point') {
+                const material=result.kind==='point' ? new THREE.PointsMaterial({color:surf.color,size:7,sizeAttenuation:false}) : new THREE.LineBasicMaterial({color:surf.color});
+                group.add(result.kind==='point' ? new THREE.Points(raw,material) : new THREE.LineSegments(raw,material));
+                return;
+            }
             const geometry = mergeVertices(raw, 1e-5);
             raw.dispose();
             geometry.computeVertexNormals();
+            if (result.normals?.length === positions.length) {
+                const smooth = new Float32Array(result.normals.length);
+                for (let i = 0; i < smooth.length; i += 3) {
+                    const n = new THREE.Vector3(result.normals[i], result.normals[i + 2] / heightScale, -result.normals[i + 1]).normalize();
+                    smooth.set([n.x, n.y, n.z], i);
+                }
+                // Normals belong to the original triangle positions; weld them together.
+                const shaded = new THREE.BufferGeometry();
+                shaded.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+                shaded.setAttribute('normal', new THREE.BufferAttribute(smooth, 3));
+                const welded = mergeVertices(shaded, 1e-5);
+                geometry.copy(welded); shaded.dispose(); welded.dispose();
+            }
 
             // Surface Material
             const isTransparent = surf.opacity < 1;
             const material = new THREE.MeshStandardMaterial({
                 color: new THREE.Color(surf.color),
                 flatShading: surf.wireframeMode === 'both',
-                roughness: 0.5,
-                metalness: 0.1,
+                roughness: 0.82,
+                metalness: 0,
                 side: THREE.DoubleSide,
                 transparent: isTransparent,
                 opacity: surf.opacity,
@@ -131,8 +150,8 @@ export function ThreeDGraph({ initialEquation, surfaces: controlledSurfaces, onS
             });
 
             const mesh = new THREE.Mesh(geometry, material);
-            mesh.castShadow = true;
-            mesh.receiveShadow = true;
+            mesh.castShadow = false;
+            mesh.receiveShadow = false;
             group.add(mesh);
 
             // Faceted Wireframe Overlay
@@ -162,8 +181,9 @@ export function ThreeDGraph({ initialEquation, surfaces: controlledSurfaces, onS
         scene.background = new THREE.Color(0xFFFFFF);
         sceneRef.current = scene;
 
-        const camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 1000);
-        camera.position.set(16, 14, 18);
+        const fitFov = aspect => THREE.MathUtils.radToDeg(2 * Math.atan(Math.tan(Math.PI / 8) / Math.min(1, aspect)));
+        const camera = new THREE.PerspectiveCamera(fitFov(width / height), width / height, 0.1, 1000);
+        camera.position.set(12, 10, 14);
         cameraRef.current = camera;
 
         const renderer = new THREE.WebGLRenderer({
@@ -173,13 +193,16 @@ export function ThreeDGraph({ initialEquation, surfaces: controlledSurfaces, onS
         });
         renderer.setSize(width, height);
         renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.enabled = false;
         renderer.shadowMap.type = THREE.PCFSoftShadowMap;
         rendererRef.current = renderer;
 
         const controls = new OrbitControls(camera, renderer.domElement);
         controls.enableDamping = true;
-        controls.dampingFactor = 0.05;
+        controls.dampingFactor = 0.09;
+        controls.touches.ONE = THREE.TOUCH.ROTATE;
+        controls.touches.TWO = THREE.TOUCH.DOLLY_PAN;
+        renderer.domElement.style.touchAction = 'none';
         controls.target.set(0, 0, 0);
         controlsRef.current = controls;
 
@@ -189,7 +212,7 @@ export function ThreeDGraph({ initialEquation, surfaces: controlledSurfaces, onS
 
         const dirLight = new THREE.DirectionalLight(0xFFFFFF, 0.9);
         dirLight.position.set(20, 35, 20);
-        dirLight.castShadow = true;
+        dirLight.castShadow = false;
         scene.add(dirLight);
 
         const fillLight = new THREE.DirectionalLight(0xEEEEEE, 0.4);
@@ -197,7 +220,7 @@ export function ThreeDGraph({ initialEquation, surfaces: controlledSurfaces, onS
         scene.add(fillLight);
 
         // Ground Reference Grid
-        const gridHelper = new THREE.GridHelper(24, 24, 0x18181B, 0xD4D4D8);
+        const gridHelper = new THREE.GridHelper(10, 10, 0x18181B, 0xD4D4D8);
         gridHelper.position.y = -0.01;
         gridHelper.name = 'referenceGrid';
         scene.add(gridHelper);
@@ -218,17 +241,8 @@ export function ThreeDGraph({ initialEquation, surfaces: controlledSurfaces, onS
             canvas.height = 128;
             const ctx = canvas.getContext('2d');
 
-            // Circular badge with high-contrast border
-            ctx.fillStyle = '#FFFFFF';
-            ctx.strokeStyle = colorHex;
-            ctx.lineWidth = 8;
-            ctx.beginPath();
-            ctx.arc(64, 64, 50, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.stroke();
-
             // Coordinate Axis Text
-            ctx.font = 'bold 48px "JetBrains Mono", monospace, sans-serif';
+            ctx.font = '500 48px "JetBrains Mono", monospace, sans-serif';
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
             ctx.fillStyle = colorHex;
@@ -243,22 +257,19 @@ export function ThreeDGraph({ initialEquation, surfaces: controlledSurfaces, onS
             });
             const sprite = new THREE.Sprite(spriteMat);
             sprite.position.copy(position);
-            sprite.scale.set(1.4, 1.4, 1.4);
+            sprite.scale.set(0.7, 0.7, 0.7);
             return sprite;
         };
 
         // Red for X, Blue for Z (Height), Green for Y (Depth)
-        axesGroup.add(createAxis(new THREE.Vector3(-12.5, 0, 0), new THREE.Vector3(12.5, 0, 0), 0xDC2626)); // X (Red)
-        axesGroup.add(createAxis(new THREE.Vector3(0, -10.5, 0), new THREE.Vector3(0, 10.5, 0), 0x2563EB)); // Z Height (Blue)
-        axesGroup.add(createAxis(new THREE.Vector3(0, 0, -12.5), new THREE.Vector3(0, 0, 12.5), 0x059669)); // Y Depth (Green)
+        axesGroup.add(createAxis(new THREE.Vector3(-5.5, 0, 0), new THREE.Vector3(5.5, 0, 0), 0xDC2626)); // X (Red)
+        axesGroup.add(createAxis(new THREE.Vector3(0, -5.5, 0), new THREE.Vector3(0, 5.5, 0), 0x2563EB)); // Z Height (Blue)
+        axesGroup.add(createAxis(new THREE.Vector3(0, 0, -5.5), new THREE.Vector3(0, 0, 5.5), 0x059669)); // Y Depth (Green)
 
         // Axis Tip Coordinate Text Labels
-        axesGroup.add(createAxisLabel('+X', '#DC2626', new THREE.Vector3(13.2, 0, 0)));
-        axesGroup.add(createAxisLabel('-X', '#DC2626', new THREE.Vector3(-13.2, 0, 0)));
-        axesGroup.add(createAxisLabel('+Z', '#2563EB', new THREE.Vector3(0, 11.2, 0)));
-        axesGroup.add(createAxisLabel('-Z', '#2563EB', new THREE.Vector3(0, -11.2, 0)));
-        axesGroup.add(createAxisLabel('+Y', '#059669', new THREE.Vector3(0, 0, -13.2)));
-        axesGroup.add(createAxisLabel('-Y', '#059669', new THREE.Vector3(0, 0, 13.2)));
+        axesGroup.add(createAxisLabel('x', '#DC2626', new THREE.Vector3(5.9, 0, 0)));
+        axesGroup.add(createAxisLabel('z', '#2563EB', new THREE.Vector3(0, 5.9, 0)));
+        axesGroup.add(createAxisLabel('y', '#059669', new THREE.Vector3(0, 0, -5.9)));
 
         scene.add(axesGroup);
 
@@ -267,14 +278,18 @@ export function ThreeDGraph({ initialEquation, surfaces: controlledSurfaces, onS
         scene.add(surfacesGroup);
         surfacesGroupRef.current = surfacesGroup;
 
-        // Render loop
-        let animId;
-        const animate = () => {
-            animId = requestAnimationFrame(animate);
+        // Draw only while interacting or when graph state changes. Damping emits
+        // change events until motion settles; idle views use no animation frames.
+        let animId = null;
+        const render = () => {
+            animId = null;
             controls.update();
             renderer.render(scene, camera);
         };
-        animate();
+        const requestRender = () => { if (animId === null) animId = requestAnimationFrame(render); };
+        requestRenderRef.current = requestRender;
+        controls.addEventListener('change', requestRender);
+        requestRender();
 
         // Resize Observer
         const resizeObserver = new ResizeObserver((entries) => {
@@ -282,8 +297,10 @@ export function ThreeDGraph({ initialEquation, surfaces: controlledSurfaces, onS
                 const { width: w, height: h } = entry.contentRect;
                 if (w > 0 && h > 0) {
                     camera.aspect = w / h;
+                    camera.fov = fitFov(camera.aspect);
                     camera.updateProjectionMatrix();
                     renderer.setSize(w, h);
+                    requestRender();
                 }
             }
         });
@@ -292,6 +309,8 @@ export function ThreeDGraph({ initialEquation, surfaces: controlledSurfaces, onS
         return () => {
             cancelAnimationFrame(animId);
             resizeObserver.disconnect();
+            controls.removeEventListener('change', requestRender);
+            requestRenderRef.current = () => {};
             controls.dispose();
             scene.traverse(object => {
                 object.geometry?.dispose();
@@ -320,11 +339,13 @@ export function ThreeDGraph({ initialEquation, surfaces: controlledSurfaces, onS
         if (grid) grid.visible = showGrid;
         const axes = sceneRef.current.getObjectByName('cartesianAxes');
         if (axes) axes.visible = showAxes;
+        requestRenderRef.current();
     }, [showGrid, showAxes]);
 
     // Redraw surfaces on change
     useEffect(() => {
         updateSurfaces();
+        requestRenderRef.current();
     }, [updateSurfaces]);
 
     // Surface management handlers
@@ -360,13 +381,13 @@ export function ThreeDGraph({ initialEquation, surfaces: controlledSurfaces, onS
 
     const resetCamera = () => {
         if (!cameraRef.current || !controlsRef.current) return;
-        cameraRef.current.position.set(16, 14, 18);
+        cameraRef.current.position.set(12, 10, 14);
         controlsRef.current.target.set(0, 0, 0);
         controlsRef.current.update();
     };
 
     return (
-        <div className="relative flex h-[calc(100vh-56px)] overflow-hidden bg-white">
+        <div className="relative flex h-[calc(100dvh-var(--graphly-nav-height,56px))] overflow-hidden bg-white">
             {/* Main 3D Canvas Area */}
             <div className="flex-1 relative bg-white flex flex-col overflow-hidden">
                 {/* 3D Viewport */}
@@ -387,7 +408,7 @@ export function ThreeDGraph({ initialEquation, surfaces: controlledSurfaces, onS
                                 <div key={s.id} className="flex items-center gap-2 text-xs">
                                     <div className="w-2.5 h-2.5 rounded-full ring-1 ring-white shrink-0 shadow-2xs" style={{ backgroundColor: s.color }} />
                                     <span className={`font-mono text-[11px] truncate ${s.visible ? 'text-neutral-900 font-semibold' : 'text-neutral-400 line-through'}`}>
-                                        {s.equation.includes('=') ? s.equation : `z = ${s.equation}`}
+                                        {s.equation}
                                     </span>
                                 </div>
                             ))}
@@ -403,7 +424,7 @@ export function ThreeDGraph({ initialEquation, surfaces: controlledSurfaces, onS
                     <div className="absolute top-4 right-4 z-20 md:hidden">
                         <button
                             onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-                            className="bg-white/95 backdrop-blur-xs border border-neutral-300 rounded-lg p-2 text-neutral-800 hover:bg-neutral-100 shadow-sm transition-colors cursor-pointer"
+                            className="bg-white/95 backdrop-blur-xs border border-neutral-300 rounded-lg min-w-11 min-h-11 p-2 text-neutral-800 hover:bg-neutral-100 shadow-sm transition-colors cursor-pointer"
                             aria-label="Toggle Surfaces Panel"
                         >
                             {isSidebarOpen ? <X size={16} /> : <Menu size={16} />}
@@ -411,8 +432,8 @@ export function ThreeDGraph({ initialEquation, surfaces: controlledSurfaces, onS
                     </div>
 
                     {/* Navigation HUD Instructions */}
-                    <div className="absolute bottom-4 left-4 bg-white/95 backdrop-blur-xs border border-neutral-300 rounded-md px-3 py-1.5 font-mono text-[11px] text-neutral-700 pointer-events-none z-10 shadow-2xs">
-                        [L-CLICK] Rotate &nbsp;•&nbsp; [R-CLICK / SHIFT] Pan &nbsp;•&nbsp; [SCROLL] Zoom
+                    <div className="hidden lg:block absolute bottom-16 left-4 bg-white/95 backdrop-blur-xs border border-neutral-300 rounded-md px-3 py-1.5 font-mono text-[11px] text-neutral-700 pointer-events-none z-10 shadow-2xs">
+                        Drag to rotate &nbsp;•&nbsp; Two fingers to pan &nbsp;•&nbsp; Pinch to zoom
                     </div>
 
                     {/* Reset Camera Button */}
@@ -420,7 +441,7 @@ export function ThreeDGraph({ initialEquation, surfaces: controlledSurfaces, onS
                         <button
                             onClick={resetCamera}
                             title="Reset 3D Perspective"
-                            className="bg-white border border-neutral-300 rounded-lg px-3 py-2 text-neutral-800 hover:bg-neutral-100 transition-colors shadow-xs flex items-center gap-1.5 text-xs font-semibold cursor-pointer"
+                            className="bg-white border border-neutral-300 rounded-lg min-h-11 px-3 py-2 text-neutral-800 hover:bg-neutral-100 transition-colors shadow-xs flex items-center gap-1.5 text-xs font-semibold cursor-pointer"
                         >
                             <RotateCcw size={14} />
                             <span>Reset View</span>
@@ -439,10 +460,11 @@ export function ThreeDGraph({ initialEquation, surfaces: controlledSurfaces, onS
 
             {/* Right Sidebar: Compact Multi-Surface Manager & Parameters */}
             <div className={`
-                fixed inset-y-0 right-0 z-40 w-76 sm:w-80 bg-white flex flex-col h-full overflow-hidden border-l border-neutral-300 shadow-xl
+                fixed inset-y-0 right-0 z-[60] w-[min(320px,100vw)] sm:w-80 bg-white flex flex-col h-full overflow-hidden border-l border-neutral-300 shadow-xl
                 md:relative md:translate-x-0 md:w-72 lg:w-80 md:z-auto md:shadow-none transition-transform duration-200
                 ${isSidebarOpen ? 'translate-x-0' : 'translate-x-full md:translate-x-0'}
             `}>
+                <button className="md:hidden min-h-11 px-4 text-right text-sm border-b border-neutral-200" onClick={() => setIsSidebarOpen(false)}>Close surfaces</button>
                 {/* Segmented Control Header */}
                 <div className="flex border-b border-neutral-300 shrink-0 bg-neutral-100/60 p-1.5 gap-1.5">
                     <button
@@ -528,7 +550,7 @@ export function ThreeDGraph({ initialEquation, surfaces: controlledSurfaces, onS
                                                     <p role="alert" className="text-xs text-red-700">{meshResults.find(r => r.id === s.id).error}</p>
                                                 )}
                                                 {meshResults.find(r => r.id === s.id)?.vertices?.length === 0 && (
-                                                    <p role="status" className="text-xs text-amber-700">No surface found. Check the bounds; equations with no sign change, such as z^2 = 0, need to be simplified.</p>
+                                                    <p role="status" className="text-xs text-amber-700">No geometry found in this domain. Check the equation, restrictions, and parameter bounds; try a tighter domain for small features.</p>
                                                 )}
                                                 {/* Color Picker Swatches */}
                                                 <div>
@@ -553,7 +575,7 @@ export function ThreeDGraph({ initialEquation, surfaces: controlledSurfaces, onS
                                                     <span className="text-xs font-medium text-neutral-700 mb-1.5 block">Shading & Facets</span>
                                                     <div className="flex bg-neutral-100 p-0.5 rounded-lg border border-neutral-200">
                                                         <button
-                                                            onClick={() => updateSurface(s.id, { wireframeMode: 'solid' })}
+                                                            onClick={() => updateSurface(s.id, { wireframeMode: 'both' })}
                                                             className={`flex-1 py-1 text-[11px] font-semibold rounded-md transition-all cursor-pointer ${
                                                                 s.wireframeMode === 'both' ? 'bg-white text-neutral-900 shadow-2xs' : 'text-neutral-600 hover:text-neutral-900'
                                                             }`}

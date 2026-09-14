@@ -1,3 +1,4 @@
+import { allowedBy } from './expressionSyntax.js';
 import { compileSurface } from './surfaceEngine.js';
 
 /** Contour F(x,y)=0. Returns [[x,y],[x,y]] line segments in mathematical coordinates.
@@ -40,7 +41,10 @@ export function generateImplicitSegments(equation, bounds, resolution = 100) {
                 const a = tri[e], b = tri[(e + 1) % 3];
                 if ((a.v < 0) !== (b.v < 0)) crossings.push(edge(a.p, b.p, a.v, b.v));
             }
-            if (crossings.length === 2 && crossings.every(Boolean) && Math.hypot(crossings[0][0] - crossings[1][0], crossings[0][1] - crossings[1][1]) > 1e-12) segments.push(crossings);
+            if (crossings.length === 2 && crossings.every(Boolean) && Math.hypot(crossings[0][0] - crossings[1][0], crossings[0][1] - crossings[1][1]) > 1e-12) {
+                const valid=p=>allowedBy(fn.fields,{x:p[0],y:p[1],z:0});
+                if(valid(crossings[0]) && valid(crossings[1])) segments.push(crossings);
+            }
         }
     }
     return segments;

@@ -1,3 +1,4 @@
+import { compileParametric, splitRestrictions } from './expressionSyntax.js';
 import { compileSurface } from './surfaceEngine.js';
 
 export const GEOMETRIC_3D_SURFACES = [
@@ -133,19 +134,34 @@ export const GEOMETRIC_2D_CURVES = [
 
 // Compile for syntax and symbols; sampling a few points incorrectly rejects valid domains.
 export function isMathExpression(expr) {
-    try { compileSurface(expr); return true; } catch { return false; }
+    try { compileSurface(expr); return true; } catch { try { return !!compileParametric(expr,2); } catch { return false; } }
 }
 
-export function parseIntentLocally(prompt, executeTool) {
+export function parseIntentLocally(prompt, executeTool, context = {}) {
     if (typeof prompt !== 'string' || !prompt.trim()) return { text: 'Enter an equation or describe a graph.', actions: [] };
     const lower = prompt.toLowerCase();
     const run = (name, args) => {
         const result = executeTool(name, args);
         return { text: result.message, actions: [{ name, args, result: result.message, success: result.success }] };
     };
+    if (/^(?:what|why|how|explain|describe|tell me)\b/i.test(prompt.trim())) return {text:'Connect AI for mathematical explanations and custom designs, or enter an equation to plot locally.',actions:[]};
+    if (/\b(planet|saturn)\b/.test(lower) && /\b(plot|build|make|create|draw|graph)\b/.test(lower)) return run('addScene', {surfaces:[{equation:'x^2+y^2+z^2=4',name:'Planet',color:'#b88759'},{equation:'(sqrt(x^2+y^2)-3.3)^2+z^2/0.04=0.36',name:'Ring',color:'#8d9dae'}],bounds:{xMin:-5,xMax:5,yMin:-5,yMax:5,zMin:-5,zMax:5},camera:{position:[9,-11,7],target:[0,0,0]}});
+    if (/\btorus\b/.test(lower) && /\b(plot|build|make|create|draw|graph)\b/.test(lower)) return run('switchTo3D',{expression:'(sqrt(x^2+y^2)-3)^2+z^2=1'});
+    if (/\b(?:two|2)\s+(?:intersecting\s+)?planes\b/.test(lower) || /\bplanes\s+(?:that\s+)?intersect\b/.test(lower)) {
+        const results = ['z = x', 'z = -x'].map(expression => run('switchTo3D', { expression }));
+        return { text: 'Two planes intersect along the y-axis. ' + results.map(r => r.text).join('. '), actions: results.flatMap(r => r.actions) };
+    }
+    // A semicolon/newline separates equations; validate the whole request before adding any.
+    const scene = prompt.replace(/^(?:please\s+)?(?:plot|graph|add|draw)\s+/i, '').split(/[;\n]+/).map(s => s.trim()).filter(Boolean);
+    if (scene.length > 1) {
+        if (scene.length > 12 || !scene.every(isMathExpression)) return { text: 'Provide up to 12 valid equations separated by semicolons. No changes were made.', actions: [] };
+        const in3D = scene.some(eq => /\bz\b/.test(eq));
+        const results = scene.map(expression => run(in3D ? 'switchTo3D' : expression.includes('=') ? 'plotImplicitEquation' : 'plotFunction', { expression }));
+        return { text: results.map(r => r.text).join('\n'), actions: results.flatMap(r => r.actions) };
+    }
     // Offline mode must not invent data or replace a graph for an edit request.
     if (/\b(replace|change|remove|delete|edit|make it)\b/.test(lower)) {
-        return { text: 'Edits to existing items are not supported by this assistant yet. Use the expression list to edit an item, or ask me to add a new equation.', actions: [] };
+        return { text: 'Connect AI to edit existing items by name. Use the expression list to edit an item, or ask me to add a new equation.', actions: [] };
     }
     if (/\b(table|dataset|scatter|data points)\b/.test(lower)) {
         const rows = [...prompt.matchAll(/\(\s*([-+]?\d*\.?\d+(?:e[-+]?\d+)?)\s*,\s*([-+]?\d*\.?\d+(?:e[-+]?\d+)?)\s*\)/gi)].map(m => ({ x: Number(m[1]), y: Number(m[2]) }));
@@ -161,7 +177,13 @@ export function parseIntentLocally(prompt, executeTool) {
     candidate = candidate.replace(/^(?:circle|ellipse|sphere|ellipsoid)\s+(?=[xyz])/i, '');
     const is3D = /\b3d\b|\bz\b/i.test(prompt);
     const explicitY = /^(?:y|f\(x\))\s*=/i.test(candidate);
-    if (explicitY) candidate = candidate.replace(/^(?:y|f\(x\))\s*=\s*/i, '');
+    if (explicitY && !/\by\b/.test(candidate.split('=').slice(1).join('='))) candidate = candidate.replace(/^(?:y|f\(x\))\s*=\s*/i, '');
+    try {
+        const tuple2D=compileParametric(candidate,2);
+        if(tuple2D)return run('plotImplicitEquation',{expression:candidate});
+    } catch { /* May be a 3D tuple. */ }
+    try { if(compileParametric(candidate,3))return run('switchTo3D',{expression:candidate}); } catch { /* Nonparametric equation. */ }
+    if (isMathExpression(candidate) && /[<>≤≥]/.test(splitRestrictions(candidate).base)) return run(is3D || context.dimension==='3d' ? 'switchTo3D' : 'plotImplicitEquation',{expression:candidate});
     if (isMathExpression(candidate)) {
         const tool = is3D || (!explicitY && !candidate.includes('=') && /\by\b/.test(candidate)) ? 'switchTo3D'
             : candidate.includes('=') ? 'plotImplicitEquation' : 'plotFunction';

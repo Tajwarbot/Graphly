@@ -1,21 +1,30 @@
-import { ArrowRight, Box, ChartNoAxesCombined, FileUp, FolderOpen, Trash2 } from 'lucide-react';
+import { ArrowRight, Trash2 } from 'lucide-react';
 import './HomePage.css';
+import { GraphlyLogo } from './GraphlyLogo';
 
 const starters = [
-    { title: '2D graph', description: 'Explore equations, plot points, and fit your data.', label: 'Start graphing', icon: <ChartNoAxesCombined size={23} aria-hidden="true" />, action: 'onCreate2D' },
-    { title: '3D graph', description: 'Explore surfaces and equations from every angle.', label: 'Explore in 3D', icon: <Box size={23} aria-hidden="true" />, action: 'onCreate3D' },
-    { title: 'Import data', description: 'Bring in a CSV file or scan a table from an image.', label: 'Add your data', icon: <FileUp size={23} aria-hidden="true" />, action: 'onImport' },
+    { title: '2D graph', description: 'Equations & data', label: 'Start graphing', icon: 'y = f(x)', action: 'onCreate2D' },
+    { title: '3D graph', description: 'Surfaces & space', label: 'Explore in 3D', icon: 'F(x, y, z) = 0', action: 'onCreate3D' },
+    { title: 'Import data', description: 'CSV & image scan', label: 'Add your data', icon: 'x, y', action: 'onImport' },
 ];
 
 export function HomePage({ onCreate2D, onCreate3D, onImport, savedGraphs = [], onOpenGraph, onDeleteGraph }) {
     const actions = { onCreate2D, onCreate3D, onImport };
     return (
         <main className="graphly-home">
+            <svg className="graphly-home-background" viewBox="0 0 1200 700" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+                <g stroke="#e4e4e7" strokeWidth="1">
+                    {Array.from({ length: 25 }, (_, i) => <path key={`v${i}`} d={`M${i * 50} 0V700`} />)}
+                    {Array.from({ length: 15 }, (_, i) => <path key={`h${i}`} d={`M0 ${i * 50}H1200`} />)}
+                </g>
+                <path className="graphly-home-wave" d="M-100 370C50 120 150 120 300 370S550 620 700 370S950 120 1100 370S1350 620 1500 370" />
+                <path className="graphly-home-wave graphly-home-wave-secondary" d="M-100 520Q300 -100 700 520T1500 520" />
+            </svg>
             <div className="graphly-home-content">
                 <header className="graphly-home-intro">
-                    <p className="graphly-home-eyebrow">Your mathematical workspace</p>
-                    <h1>A little curiosity.<br /><span>A clearer picture.</span></h1>
-                    <p>Turn equations and data into something you can explore. Start a graph, discover a surface, or pick up where you left off.</p>
+                    <div className="graphly-home-brand"><GraphlyLogo size={42} /></div>
+                    <h1>See the math.</h1>
+
                 </header>
                 <section className="graphly-home-starters" aria-label="Create a graph">
                     {starters.map(({ title, description, label, icon, action }) => (
@@ -40,7 +49,7 @@ export function HomePage({ onCreate2D, onCreate3D, onImport, savedGraphs = [], o
                                 return (
                                     <li key={graph.id} className="graphly-home-project">
                                         <button type="button" className="graphly-home-open" onClick={() => onOpenGraph(graph)}>
-                                            <FolderOpen size={20} aria-hidden="true" />
+
                                             <span><strong>{title}</strong><small>{count} {count === 1 ? 'dataset' : 'datasets'}</small></span>
                                         </button>
                                         <button type="button" className="graphly-home-delete" onClick={event => onDeleteGraph(event, graph.id)} aria-label={`Delete ${title}`} title={`Delete ${title}`}>
@@ -50,9 +59,7 @@ export function HomePage({ onCreate2D, onCreate3D, onImport, savedGraphs = [], o
                                 );
                             })}
                         </ul>
-                    ) : (
-                        <div className="graphly-home-empty"><FolderOpen size={24} aria-hidden="true" /><div><h3>Room for your next idea</h3><p>Graphs you save will appear here, ready to explore again.</p></div></div>
-                    )}
+                    ) : <p className="graphly-home-empty">Saved graphs will appear here.</p>}
                 </section>
             </div>
         </main>

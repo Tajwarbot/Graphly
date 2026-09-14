@@ -1,4 +1,5 @@
-import { compile as mathCompile } from 'mathjs';
+import { compileParametric, splitRestrictions, compileRestrictions, allowedBy, scalar } from './expressionSyntax.js';
+import { compileInequality, isInequality } from './inequalityRegions.js';
 
 export const calculateNiceTicks = (min, max, maxTicks = 8) => {
     if (typeof min !== 'number' || typeof max !== 'number') return [];
@@ -516,7 +517,7 @@ export function compileEquation(equation) {
     if (compileCache.has(equation)) {
         return compileCache.get(equation);
     }
-    const tokens = tokenize(equation);
+    const tokens = tokenize(typeof equation === 'string' ? equation.replace(/²/g, '^2').replace(/³/g, '^3').replace(/−/g, '-') : equation);
     const ast = parse(tokens);
     const fn = compileAST(ast);
     
@@ -534,7 +535,14 @@ const mathjsCache = new Map();
 
 export function compileMathFunction(expression) {
     if (!expression || typeof expression !== 'string') return null;
-    const raw = expression.trim();
+    const raw = expression.trim().replace(/²/g, '^2').replace(/³/g, '^3').replace(/−/g, '-');
+    try {
+        const parametric=compileParametric(raw,2);
+        if(parametric){const fn=t=>parametric.point({t});fn.type='parametric';return fn;}
+        const {base,restrictions}=splitRestrictions(raw);
+        if(isInequality(base)){const region=compileInequality(base);const fn=(x,y)=>region.contains(x,y);fn.type='inequality';return fn;}
+        if(restrictions.length){const original=compileMathFunction(base);if(!original)return null;const fields=compileRestrictions(restrictions,['x','y']);const fn=(x,y)=>{const result=original(x,y);return allowedBy(fields,{x,y:original.type==='explicit'?result:y})?result:NaN;};fn.type=original.type;return fn;}
+    } catch {return null;}
     if (!raw) return null;
 
     if (mathjsCache.has(raw)) {
@@ -571,7 +579,7 @@ export function compileMathFunction(expression) {
             }
         }
 
-        const compiled = mathCompile(evaluateExpr);
+        const compiled = { evaluate: scalar(evaluateExpr,['x','y']) };
 
         // Callable function with attached metadata
         const callable = isImplicit

@@ -18,11 +18,15 @@ import { FunctionGraph } from './components/FunctionGraph';
 import { ThreeDGraph } from './components/ThreeDGraph';
 import { AIChatbox } from './components/AIChatbox';
 import { Logo, LogoIcon } from './components/Logo';
+import { ImportPage } from './components/ImportPage';
 import { HomePage } from './components/HomePage';
+import { prepareScene, validateView, validateStyle } from './lib/sceneTools.js';
 import { makeSurface, makeDataset, appendDataset } from './lib/graphState.js';
 import { compileSurface } from './lib/surfaceEngine.js';
 import { connectGraphSession } from './lib/graphSessionClient.js';
-import { generateImplicitPoints } from './lib/implicitContours.js';
+import { samplePlot2D } from './lib/plot2D.js';
+import { PlotMetrics } from './components/PlotMetrics.jsx';
+import { InequalityPlot } from './components/InequalityPlot.jsx';
 
 // SECURITY: Import security utilities for rate limiting, validation, and API key handling
 import {
@@ -111,7 +115,7 @@ const Card = ({ children, className = "" }) => (
     <div className={`bg-white border border-neutral-200 rounded-lg shadow-xs ${className}`}>{children}</div>
 );
 
-const Button = ({ onClick, children, variant = "primary", disabled = false, icon: Icon, size = "md", className = "" }) => {
+const Button = ({ onClick, children, label, variant = "primary", disabled = false, icon: Icon, size = "md", className = "" }) => {
     const sizes = { 
         sm: "py-1.5 px-3 text-xs rounded-md", 
         md: "py-2 px-3.5 text-xs font-medium rounded-md", 
@@ -129,9 +133,10 @@ const Button = ({ onClick, children, variant = "primary", disabled = false, icon
     };
     return (
         <button 
-            onClick={onClick} 
+            onClick={onClick}
+            aria-label={label}
             disabled={disabled} 
-            className={`font-medium flex items-center justify-center gap-2 transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${sizes[size]} ${variants[variant]} ${className}`}
+            className={`min-h-11 font-medium flex items-center justify-center gap-2 transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${sizes[size]} ${variants[variant]} ${className}`}
         >
             {Icon && <Icon size={size === 'sm' ? 14 : size === 'lg' ? 18 : 16} />}
             {children}
@@ -211,16 +216,21 @@ function FunctionEvaluator({ equation }) {
 // --- MAIN APP ---
 
 export default function App() {
+    const navRef = useRef(null);
+    useEffect(() => {
+        const observer = new ResizeObserver(([entry]) => document.documentElement.style.setProperty('--graphly-nav-height', `${entry.borderBoxSize?.[0]?.blockSize ?? navRef.current.getBoundingClientRect().height}px`));
+        if (navRef.current) observer.observe(navRef.current);
+        return () => observer.disconnect();
+    }, []);
     const [view, setView] = useState('dashboard');
     const [appMode, setAppMode] = useState('data'); // 'data' | 'function'
     const setViewportBounds = bounds => setZoomDomain({ x: [bounds.xMin, bounds.xMax], y: [bounds.yMin, bounds.yMax] });
     const [currentGraph, setCurrentGraph] = useState(() => readWorkspace('graphly_draft_2d', null));
     const [isImporting, setIsImporting] = useState(false);
-    const [showCSVModal, setShowCSVModal] = useState(false);
-    const [csvText, setCsvText] = useState("");
     const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
     // New State for graph dimensions to handle square aspect ratio
+    const [plotAreaSize, setPlotAreaSize] = useState({width:1,height:1});
     const [containerSize, setContainerSize] = useState({ width: 1, height: 1 });
     const graphContainerRef = useRef(null);
     const activePointers = useRef(new Map());
@@ -235,8 +245,6 @@ export default function App() {
     const [image, setImage] = useState(null);
     const [scanStatus, setScanStatus] = useState("idle");
     const [showApiKeyModal, setShowApiKeyModal] = useState(false);
-    const fileInputRef = useRef(null);
-    const csvFileInputRef = useRef(null);
 
     const [zoomDomain, setZoomDomain] = useState({ x: ['auto', 'auto'], y: ['auto', 'auto'] });
     const [isDragging, setIsDragging] = useState(false);
@@ -445,7 +453,7 @@ export default function App() {
                 config: { type: 'scatter', xKey: 'x', yKey: 'y', showTrendline: false, trendlineType: 'linear', trendlineColor: '#ef4444' }
             }],
             // Default Labels to X and Y
-            globalConfig: { showGrid: true, enableZoom: true, xAxisLabel: "X", yAxisLabel: "Y", aspectRatio: "auto", showLabels: false },
+            globalConfig: { showGrid: true, enableZoom: true, xAxisLabel: "X", yAxisLabel: "Y", aspectRatio: "square", showLabels: false },
             annotations: [],
             createdAt: new Date().toISOString()
         };
@@ -460,7 +468,7 @@ export default function App() {
         const cleanExpr = expression.trim();
         const newDs = {
             id: `ds-${Date.now()}`,
-            name: `f(x) = ${cleanExpr}`,
+            name: cleanExpr.includes('=') ? cleanExpr : `f(x) = ${cleanExpr}`,
             data: [],
             equation: cleanExpr,
             visible: true,
@@ -477,7 +485,7 @@ export default function App() {
         const newGraph = {
             title: `Function: ${cleanExpr}`,
             datasets: [newDs],
-            globalConfig: { showGrid: true, enableZoom: true, xAxisLabel: "X", yAxisLabel: "Y", aspectRatio: "auto", showLabels: false },
+            globalConfig: { showGrid: true, enableZoom: true, xAxisLabel: "X", yAxisLabel: "Y", aspectRatio: "square", showLabels: false },
             annotations: [],
             createdAt: new Date().toISOString()
         };
@@ -519,7 +527,7 @@ export default function App() {
                 title: "Imported CSV Graph",
                 datasets: [newDataset],
                 // Default Labels to X and Y
-                globalConfig: { showGrid: true, enableZoom: true, xAxisLabel: "X", yAxisLabel: "Y", aspectRatio: "auto", showLabels: false },
+                globalConfig: { showGrid: true, enableZoom: true, xAxisLabel: "X", yAxisLabel: "Y", aspectRatio: "square", showLabels: false },
                 annotations: [],
                 createdAt: new Date().toISOString()
             };
@@ -527,7 +535,6 @@ export default function App() {
             setExpandedDatasetId(newDataset.id);
             setView('editor');
         }
-        setShowCSVModal(false);
         setIsImporting(false);
     };
 
@@ -667,7 +674,7 @@ export default function App() {
                         enableZoom: true,
                         xAxisLabel: "X",
                         yAxisLabel: "Y",
-                        aspectRatio: "auto",
+                        aspectRatio: "square",
                         showLabels: false
                     },
                     annotations: [],
@@ -732,12 +739,12 @@ export default function App() {
     };
 
     const addFunctionDataset = (expr) => {
-        const cleanExpr = (expr || 'sin(x)').replace(/^(y\s*=\s*|f\(x\)\s*=\s*)/i, '').trim();
+        const cleanExpr = (expr || 'sin(x)').trim();
         const nextIdx = currentGraph?.datasets?.length || 0;
         const newId = `ds-${Date.now()}`;
         const newDs = {
             id: newId,
-            name: `f(x) = ${cleanExpr}`,
+            name: cleanExpr.includes('=') ? cleanExpr : `f(x) = ${cleanExpr}`,
             data: [],
             equation: cleanExpr,
             visible: true,
@@ -824,9 +831,9 @@ export default function App() {
     const currentDomain = useMemo(() => {
         if (zoomDomain.x[0] !== 'auto') {
             // If Square Aspect Ratio is active, adjust Y domain
-            if (currentGraph?.globalConfig?.aspectRatio === 'square' && containerSize.width > 0 && containerSize.height > 0) {
+            if (currentGraph?.globalConfig?.aspectRatio === 'square' && plotAreaSize.width > 0 && plotAreaSize.height > 0) {
                 const xRange = zoomDomain.x[1] - zoomDomain.x[0];
-                const ratio = containerSize.height / containerSize.width;
+                const ratio = plotAreaSize.height / plotAreaSize.width;
                 const yCenter = (zoomDomain.y[1] + zoomDomain.y[0]) / 2;
                 const newYRange = xRange * ratio;
                 return {
@@ -849,9 +856,9 @@ export default function App() {
         };
 
         // Square Default?
-        if (currentGraph?.globalConfig?.aspectRatio === 'square' && containerSize.width > 0) {
+        if (currentGraph?.globalConfig?.aspectRatio === 'square' && plotAreaSize.width > 0) {
             const xRange = d.x[1] - d.x[0];
-            const ratio = containerSize.height / containerSize.width;
+            const ratio = plotAreaSize.height / plotAreaSize.width;
             const yCenter = (d.y[1] + d.y[0]) / 2;
             const newYRange = xRange * ratio;
             d.y = [yCenter - newYRange / 2, yCenter + newYRange / 2];
@@ -859,7 +866,7 @@ export default function App() {
 
         return d;
 
-    }, [zoomDomain, globalBounds, currentGraph?.globalConfig?.aspectRatio, containerSize]);
+    }, [zoomDomain, globalBounds, currentGraph?.globalConfig?.aspectRatio, plotAreaSize]);
 
     // Calculate ticks with optional manual interval
     const xTicks = useMemo(() => {
@@ -910,12 +917,9 @@ export default function App() {
             if (ds.config.type === 'function' && ds.equation) {
                 // Generate function points based on CURRENT view domain
                 // This gives the "Desmos" feel of infinite scrolling
-                const range = currentDomain.x[1] - currentDomain.x[0];
-                const buffer = range * 0.5; // Render a bit outside view
+
                 try {
-                    points = compileMathFunction(ds.equation)?.type === 'implicit'
-                        ? generateImplicitPoints(ds.equation, {xMin:currentDomain.x[0],xMax:currentDomain.x[1],yMin:currentDomain.y[0],yMax:currentDomain.y[1]})
-                        : generateFunctionPoints(ds.equation, currentDomain.x[0] - buffer, currentDomain.x[1] + buffer, 400);
+                    points = samplePlot2D(ds.equation, {xMin:currentDomain.x[0],xMax:currentDomain.x[1],yMin:currentDomain.y[0],yMax:currentDomain.y[1]});
                 } catch { points = []; }
             } else {
                 // Standard Data Dataset
@@ -1009,6 +1013,7 @@ export default function App() {
 
     // UNIFIED POINTER SUPPORT (Pan & Pinch-to-Zoom)
     const handlePointerDown = (e) => {
+        if (e.target.closest('button, input, textarea, select, a')) return;
         if (selectedData) return;
         if (!currentGraph?.globalConfig?.enableZoom) return;
 
@@ -1244,7 +1249,10 @@ export default function App() {
     const handleAISwitchTo3D = (expression) => {
         if (expression && typeof expression === 'string') {
             compileSurface(expression);
-            setThreeDSurfaces(prev => [...prev, makeSurface(expression, prev.length)]);
+            const surface = makeSurface(expression, threeDSurfaces.length);
+            setThreeDSurfaces(prev => [...prev, {...makeSurface(expression, prev.length), id:surface.id}]);
+            setAppMode('3d'); setView('editor');
+            return { layerId: surface.id };
         }
         setAppMode('3d');
         setView('editor');
@@ -1262,6 +1270,28 @@ export default function App() {
         if (!compileMathFunction(expression) || /\bz\b/.test(expression)) throw new Error('Enter a valid 2D equation.');
         setCurrentGraph(previous => ({...previous,datasets:previous.datasets.map(d => d.id === layerId ? {...d,equation:expression,name:expression} : d)}));
         setAppMode('2d'); setView('editor');
+    };
+
+    const handleAIAddScene = (surfaces, view = {}) => {
+        const additions = prepareScene(surfaces, view);
+        setThreeDSurfaces(previous => [...previous, ...additions]);
+        setThreeDView(previous => ({...previous, ...view}));
+        setAppMode('3d'); setView('editor');
+        return { layers: additions.map(({id, name, equation}) => ({id, name, equation})) };
+    };
+    const handleAIRemoveLayer = layerId => {
+        if (!threeDSurfaces.some(s => s.id === layerId) && !currentGraph?.datasets.some(d => d.id === layerId)) throw new Error('Unknown layer ID.');
+        setThreeDSurfaces(previous => previous.filter(s => s.id !== layerId));
+        setCurrentGraph(previous => previous ? {...previous, datasets: previous.datasets.filter(d => d.id !== layerId)} : previous);
+    };
+    const handleAISetLayerStyle = (layerId, style) => {
+        const patch = validateStyle(style);
+        if (!threeDSurfaces.some(s => s.id === layerId) && !currentGraph?.datasets.some(d => d.id === layerId)) throw new Error('Unknown layer ID.');
+        setThreeDSurfaces(previous => previous.map(s => s.id === layerId ? {...s, ...patch} : s));
+        setCurrentGraph(previous => previous ? {...previous, datasets: previous.datasets.map(d => d.id === layerId ? {...d, ...patch} : d)} : previous);
+    };
+    const handleAISet3DView = view => {
+        validateView(view); setThreeDView(previous => ({...previous, ...view}));
     };
 
     const handleAISetViewportBounds = (bounds) => {
@@ -1300,7 +1330,7 @@ export default function App() {
         }
       `}</style>
 
-            <nav className="sticky top-0 z-50 h-14 bg-white border-b border-neutral-200 flex items-center justify-between px-4 md:px-6">
+            <nav ref={navRef} className="graphly-nav sticky top-0 z-50 min-h-14 bg-white border-b border-neutral-200 flex items-center justify-between px-4 md:px-6">
                 <div className="flex items-center gap-3 sm:gap-4">
                     <button type="button" aria-label="Graphly home" className="cursor-pointer rounded-md focus-visible:outline-blue-600" onClick={() => setView('dashboard')}>
                         <Logo size={28} />
@@ -1338,7 +1368,7 @@ export default function App() {
                 <div className="flex gap-2 items-center">
                     {view === 'editor' && appMode !== '3d' && currentGraph && (
                         <>
-                            <Button size="sm" variant="secondary" icon={Download} onClick={() => {
+                            <Button label="Export PDF" size="sm" variant="secondary" icon={Download} onClick={() => {
                                 const svgElement = document.querySelector('.recharts-surface');
                                 if (!svgElement) {
                                     alert("Could not find graph to print.");
@@ -1420,24 +1450,12 @@ export default function App() {
                                 };
                                 img.src = url;
                             }}><span className="hidden sm:inline">PDF</span></Button>
-                            <Button size="sm" variant="secondary" icon={FileSpreadsheet} onClick={exportCSV}><span className="hidden sm:inline">CSV</span></Button>
-                            <Button size="sm" variant="primary" icon={Save} onClick={saveGraph}><span className="hidden sm:inline">Save</span></Button>
-                            <Button size="sm" variant="secondary" icon={FilePlus} onClick={startImport}><span className="hidden sm:inline">Import</span></Button>
+                            <Button label="Export CSV" size="sm" variant="secondary" icon={FileSpreadsheet} onClick={exportCSV}><span className="hidden sm:inline">CSV</span></Button>
+                            <Button label="Save graph" size="sm" variant="primary" icon={Save} onClick={saveGraph}><span className="hidden sm:inline">Save</span></Button>
+                            <Button label="Import data" size="sm" variant="secondary" icon={FilePlus} onClick={startImport}><span className="hidden sm:inline">Import</span></Button>
                         </>
                     )}
-                    {view === 'dashboard' && (
-                        <div className="flex gap-2">
-                            <Button onClick={createBlankGraph} icon={Plus} size="sm">
-                                <span className="hidden sm:inline">New Graph</span>
-                            </Button>
-                            <Button onClick={() => { setIsImporting(false); setView('scan'); }} variant="secondary" icon={Camera} size="sm">
-                                <span className="hidden sm:inline">Scan</span>
-                            </Button>
-                            <Button onClick={() => setShowApiKeyModal(true)} variant="secondary" icon={Key} size="sm">
-                                <span className="hidden sm:inline">API Key</span>
-                            </Button>
-                        </div>
-                    )}
+
                 </div>
             </nav>
 
@@ -1452,140 +1470,27 @@ export default function App() {
                 />
             )}
 
-            {view === 'scan' && (
-                <main className="max-w-3xl mx-auto px-4 py-10">
-                    <div className="mb-6 border-b-2 border-black pb-4">
-                        <div className="flex items-center justify-between">
-                            <h1 className="text-2xl font-bold text-black tracking-tight">Import Data</h1>
-                            <Button onClick={() => setShowApiKeyModal(true)} variant="secondary" size="sm" icon={Key}>
-                                API Key
-                            </Button>
-                        </div>
-                        <p className="text-xs font-mono text-black mt-1">
-                            {isImporting ? "Add external data to active graph" : "Create new graph from datasheet or CSV"}
-                        </p>
-                    </div>
+            {view === 'scan' && <ImportPage isImporting={isImporting} image={image} scanStatus={scanStatus} onImageChange={setImage} onScan={handleScan} onBack={() => setView(isImporting ? 'editor' : 'dashboard')} onApiKey={() => setShowApiKeyModal(true)} onCSVImport={text => handleCSVImport(parseCSV(text))} />}
 
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-                        <div
-                            onClick={() => fileInputRef.current?.click()}
-                            className="border-2 border-black bg-white p-6 h-48 flex flex-col justify-between cursor-pointer hover:bg-black hover:text-white transition-none group"
-                        >
-                            <div className="flex items-center justify-between">
-                                <span className="text-xs font-mono font-bold uppercase">[IMAGE SCAN]</span>
-                                <Camera size={20} />
-                            </div>
-                            {image ? (
-                                <img src={image.preview} className="h-24 object-contain mx-auto" />
-                            ) : (
-                                <div>
-                                    <div className="font-bold text-base mb-1">Datasheet Image</div>
-                                    <div className="text-xs font-mono text-neutral-500 group-hover:text-neutral-300">Upload screenshot or photo of table</div>
-                                </div>
-                            )}
-                        </div>
-
-                        <div
-                            onClick={() => setShowCSVModal(true)}
-                            className="border-2 border-black bg-white p-6 h-48 flex flex-col justify-between cursor-pointer hover:bg-black hover:text-white transition-none group"
-                        >
-                            <div className="flex items-center justify-between">
-                                <span className="text-xs font-mono font-bold uppercase">[CSV FILE]</span>
-                                <FileSpreadsheet size={20} />
-                            </div>
-                            <div>
-                                <div className="font-bold text-base mb-1">Paste / Upload CSV</div>
-                                <div className="text-xs font-mono text-neutral-500 group-hover:text-neutral-300">Raw tabular comma-separated values</div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <input type="file" ref={fileInputRef} className="hidden" onChange={e => {
-                        if (e.target.files[0]) {
-                            const r = new FileReader();
-                            r.onloadend = () => setImage({ file: e.target.files[0], base64: r.result.split(',')[1], preview: r.result });
-                            r.readAsDataURL(e.target.files[0]);
-                        }
-                    }} />
-
-                    {image && (
-                        <div className="mb-6">
-                            <Button className="w-full" variant="primary" size="lg" onClick={handleScan} disabled={scanStatus === 'scanning'} icon={Zap}>
-                                {scanStatus === 'scanning' ? 'Analyzing with Gemini AI...' : 'Process Image with AI'}
-                            </Button>
-                        </div>
-                    )}
-
-                    <div className="flex justify-start">
-                        <button onClick={() => setView(isImporting ? 'editor' : 'dashboard')} className="text-xs font-mono text-black border border-black px-3 py-1.5 hover:bg-black hover:text-white transition-none">
-                            ← Back to {isImporting ? 'Editor' : 'Dashboard'}
-                        </button>
-                    </div>
-
-                    {/* Brutalist CSV Modal */}
-                    {showCSVModal && (
-                        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-                            <div className="bg-white border-2 border-black p-6 w-full max-w-lg">
-                                <div className="flex items-center justify-between pb-3 mb-4 border-b-2 border-black">
-                                    <div className="flex items-center gap-2">
-                                        <FileSpreadsheet size={18} />
-                                        <h3 className="text-base font-bold text-black">Import CSV Data</h3>
-                                    </div>
-                                    <button onClick={() => setShowCSVModal(false)} className="p-1 hover:bg-black hover:text-white border border-transparent hover:border-black">
-                                        <X size={16} />
-                                    </button>
-                                </div>
-                                <textarea
-                                    className="w-full h-40 p-3 bg-white border-2 border-black text-xs font-mono mb-4 outline-none resize-none"
-                                    placeholder="x,y&#10;1,2&#10;3,4"
-                                    value={csvText}
-                                    onChange={e => setCsvText(e.target.value)}
-                                />
-                                <div className="flex items-center justify-between mb-5 p-2.5 border border-black bg-neutral-50">
-                                    <span className="text-xs font-mono text-black">Upload .csv file:</span>
-                                    <input
-                                        type="file"
-                                        accept=".csv"
-                                        ref={csvFileInputRef}
-                                        className="text-xs font-mono text-black file:mr-2 file:py-1 file:px-2 file:border file:border-black file:text-xs file:bg-white file:text-black hover:file:bg-black hover:file:text-white file:cursor-pointer"
-                                        onChange={(e) => {
-                                            const file = e.target.files[0];
-                                            if (file) {
-                                                const reader = new FileReader();
-                                                reader.onload = (evt) => setCsvText(evt.target.result);
-                                                reader.readAsText(file);
-                                            }
-                                        }}
-                                    />
-                                </div>
-                                <div className="flex gap-2 justify-end">
-                                    <Button variant="secondary" size="md" onClick={() => setShowCSVModal(false)}>Cancel</Button>
-                                    <Button variant="primary" size="md" onClick={() => handleCSVImport(parseCSV(csvText))} icon={Check}>Import CSV</Button>
-                                </div>
-                            </div>
-                        </div>
-                    )}
-                </main>
-            )}
 
             {view === 'editor' && (
                 appMode === '3d' ? (
                     <ThreeDGraph surfaces={threeDSurfaces} onSurfacesChange={setThreeDSurfaces} view={threeDView} onViewChange={setThreeDView} />
                 ) : currentGraph ? (
-                <div className="relative flex h-[calc(100vh-56px)] overflow-hidden bg-neutral-50">
+                <div className="relative flex h-[calc(100dvh-var(--graphly-nav-height,56px))] overflow-hidden bg-neutral-50">
                     <div className="flex-1 relative bg-neutral-50 flex flex-col overflow-hidden border-r border-neutral-200">
                         {/* Top 2D Function Quick-Add & Preset Bar */}
                         <div className="p-2.5 bg-white border-b border-neutral-200 flex flex-wrap items-center gap-2.5 shrink-0 z-20 shadow-2xs">
                             <div className="flex items-center gap-1.5 font-mono font-semibold text-xs bg-neutral-100 text-neutral-800 border border-neutral-200 px-2.5 py-1.5 rounded-md shadow-2xs">
                                 <Calculator size={14} className="text-blue-600" />
-                                <span>f(x) =</span>
+                                <span>Equation</span>
                             </div>
                             <form onSubmit={handleQuickFunctionSubmit} className="flex-1 min-w-[200px] flex items-center gap-2">
                                 <input
                                     type="text"
                                     value={quickFunctionExpr}
                                     onChange={(e) => setQuickFunctionExpr(e.target.value)}
-                                    placeholder="Plot equation, e.g. sin(x), x^2 - 4, 1/x, cos(x)*x, exp(-x^2)"
+                                    placeholder="sin(x), x² + y² = 9, x = 2"
                                     className="flex-1 bg-white border border-neutral-200 px-3 py-1.5 font-mono text-xs text-neutral-900 placeholder:text-neutral-400 focus:outline-none focus:border-neutral-900 focus:ring-1 focus:ring-neutral-900 rounded-md"
                                 />
                                 <button
@@ -1593,7 +1498,7 @@ export default function App() {
                                     className="bg-neutral-900 text-white border border-neutral-900 px-3.5 py-1.5 font-sans text-xs font-semibold hover:bg-neutral-800 transition-colors flex items-center gap-1.5 rounded-md cursor-pointer shadow-2xs shrink-0"
                                 >
                                     <Plus size={14} />
-                                    <span>Plot Function</span>
+                                    <span>Plot</span>
                                 </button>
                             </form>
                             
@@ -1756,6 +1661,8 @@ export default function App() {
                                             <Label value={currentGraph.globalConfig?.yAxisLabel || "Y Axis"} angle={-90} offset={10} position="insideLeft" style={{ fontSize: '11px', fill: '#27272A', fontWeight: 600, fontFamily: 'Inter, sans-serif' }} />
                                         </YAxis>
 
+                                        <PlotMetrics onMeasure={setPlotAreaSize} />
+                                        <InequalityPlot datasets={visibleDatasets} bounds={{xMin:currentDomain.x[0],xMax:currentDomain.x[1],yMin:currentDomain.y[0],yMax:currentDomain.y[1]}} />
                                         {visibleDatasets.map(ds => (
                                             <React.Fragment key={ds.id}>
                                                 {ds.config.type === 'function' && (
@@ -1765,7 +1672,7 @@ export default function App() {
                                                         dataKey="y"
                                                         stroke={ds.color || '#2563EB'}
                                                         strokeWidth={2.5}
-                                                        dot={false}
+                                                        dot={ds.points.length === 1 ? {r:4} : false}
                                                         connectNulls={false}
                                                         isAnimationActive={false}
                                                         type="linear"
@@ -2473,7 +2380,7 @@ export default function App() {
                     </div>
                 </div>
                 ) : (
-                    <div className="flex-1 flex flex-col items-center justify-center p-12 text-center h-[calc(100vh-56px)] bg-neutral-50/50">
+                    <div className="flex-1 flex flex-col items-center justify-center p-12 text-center h-[calc(100dvh-var(--graphly-nav-height,56px))] bg-neutral-50/50">
                         <div className="max-w-md border border-neutral-200 rounded-2xl p-8 bg-white shadow-xs text-left">
                             <div className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-mono font-medium bg-neutral-100 text-neutral-600 mb-3">
                                 2D PLOTTER // NO ACTIVE GRAPH
@@ -2500,6 +2407,10 @@ export default function App() {
             {/* AI Chatbox with real application tools */}
             <AIChatbox
                 graphContext={{ dimension: appMode === '3d' ? '3d' : '2d', layers: appMode === '3d' ? threeDSurfaces.map(({id,name,equation,visible}) => ({id,name,equation,visible,kind:'surface'})) : (currentGraph?.datasets || []).map(({id,name,equation,visible,config}) => ({id,name,equation,visible,kind:config.type})) }}
+                onAddScene={handleAIAddScene}
+                onRemoveLayer={handleAIRemoveLayer}
+                onSetLayerStyle={handleAISetLayerStyle}
+                onSet3DView={handleAISet3DView}
                 onUpdateExpression={handleAIUpdateExpression}
                 onPlotFunction={handleAIPlotFunction}
                 onPlotImplicit={handleAIPlotImplicit}

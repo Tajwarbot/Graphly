@@ -11,3 +11,11 @@ describe('explicit function equation plotting', () => {
         expect(generateFunctionPoints('y = y^2+x')).toHaveLength(0);
     });
 });
+
+
+describe('natural equation entry', () => {
+    it('accepts superscripts in bare and full equations', () => {
+        expect(generateFunctionPoints('x²', 3, 3)[0].y).toBe(9);
+        expect(generateFunctionPoints('y = x²', 3, 3)[0].y).toBe(9);
+    });
+});

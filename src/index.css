@@ -92,3 +92,15 @@ path:focus {
   background: #2563EB;
   color: #FFFFFF;
 }
+/* Keep tools usable without shrinking tap targets on narrow screens. */
+.graphly-nav { gap: 8px; }
+@media (max-width: 640px) {
+  .graphly-nav { flex-wrap: wrap; padding: 6px 12px; }
+  .graphly-nav > div { min-width: 0; }
+  .graphly-nav button { min-height: 44px; }
+  .graphly-nav > div:last-child { margin-left: auto; }
+  input, textarea, select { font-size: 16px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { scroll-behavior: auto !important; transition-duration: 0.01ms !important; }
+}

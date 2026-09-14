@@ -59,3 +59,8 @@ Live sessions use a loopback SSE bridge with an Origin check and capability toke
 The bridge currently sends server state to the viewer, not manual viewer edits back to the server. Later tool updates restore session-owned layers while preserving other user layers. Inline MCP Apps support depends on the host and is not implemented by this bridge. This server does not host or publish the frontend.
 
 See `mcp-server/README.md` for setup details. Run `npm test --prefix mcp-server` with loopback networking permitted to verify protocol, session, bridge, and export behavior.
+
+
+## Extended equation input
+
+The local viewer also accepts parametric tuples in t (curves) or u,v (3D surfaces), with trailing ranges, such as `(cos(t),sin(t),t/3){0<t<4*pi}`. Use `(3*cos(t),2*sin(t)){0<t<2*pi}` for a 2D ellipse. Use full equations with restrictions (`z=x+y{x>0}`), shaded 2D inequalities (`x^2+y^2<=9`), or boundaries of bounded 3D solids (`x^2+y^2+z^2<=9{z>0}`). Parametric ranges default to 0–1. Free parameter sliders, general symbolic solving and piecewise notation are not implemented. Do not claim complete Desmos compatibility.

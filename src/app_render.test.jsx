@@ -19,7 +19,7 @@ describe('App rendering', () => {
         expect(html).toContain('Graphly');
         expect(html).not.toContain('Plotter');
         expect(html).toContain('<svg');
-        expect(html).toContain('polygon');
+        expect(html).not.toContain('<img');
     });
 
     it('renders lightweight MathBackground canvas', () => {
@@ -117,6 +117,6 @@ describe('AIChatbox & Natural Language Geometric Parser', () => {
                 onSetViewportBounds={() => {}}
             />
         );
-        expect(html).toContain('AI Copilot');
+        expect(html).toContain('Ask Graphly');
     });
 });
