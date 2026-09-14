@@ -68,9 +68,9 @@ export const formatEquationNumber = (num) => {
 };
 
 export const getRegressionParams = (points, type = 'linear') => {
-    const n = points.length;
-    const validPoints = points.filter(p => !isNaN(p.x) && !isNaN(p.y)).sort((a, b) => a.x - b.x);
-    if (validPoints.length < 2) return null;
+    const validPoints = points.filter(p => p && Number.isFinite(p.x) && Number.isFinite(p.y)).sort((a, b) => a.x - b.x);
+    const n = validPoints.length;
+    if (validPoints.length < 2 || validPoints[0].x === validPoints[n - 1].x) return null;
 
     let r2 = null;
 
@@ -78,7 +78,7 @@ export const getRegressionParams = (points, type = 'linear') => {
         const yMean = actualY.reduce((a, b) => a + b, 0) / actualY.length;
         const ssRes = actualY.reduce((sum, y, i) => sum + Math.pow(y - predictedY[i], 2), 0);
         const ssTot = actualY.reduce((sum, y) => sum + Math.pow(y - yMean, 2), 0);
-        return ssTot === 0 ? 0 : 1 - (ssRes / ssTot);
+        return ssTot === 0 ? (ssRes === 0 ? 1 : 0) : 1 - (ssRes / ssTot);
     };
 
     const det3x3 = (m) => {
@@ -90,8 +90,11 @@ export const getRegressionParams = (points, type = 'linear') => {
     if (type === 'linear') {
         let sumX = 0, sumY = 0, sumXY = 0, sumX2 = 0;
         validPoints.forEach(p => { sumX += p.x; sumY += p.y; sumXY += p.x * p.y; sumX2 += p.x * p.x; });
-        const slope = (n * sumXY - sumX * sumY) / (n * sumX2 - sumX * sumX);
+        const denominator = n * sumX2 - sumX * sumX;
+        if (denominator <= 0 || !Number.isFinite(denominator)) return null;
+        const slope = (n * sumXY - sumX * sumY) / denominator;
         const intercept = (sumY - slope * sumX) / n;
+        if (![slope, intercept].every(Number.isFinite)) return null;
 
         const preds = validPoints.map(p => slope * p.x + intercept);
         r2 = calculateR2(preds, validPoints.map(p => p.y));
@@ -107,11 +110,12 @@ export const getRegressionParams = (points, type = 'linear') => {
         });
         const M = [[s00, s10, s20], [s10, s20, s30], [s20, s30, s40]];
         const Det = det3x3(M);
-        if (Det === 0) return null;
+        if (Det === 0 || !Number.isFinite(Det)) return null;
         const c = det3x3([[s01, s10, s20], [s11, s20, s30], [s21, s30, s40]]) / Det;
         const b = det3x3([[s00, s01, s20], [s10, s11, s30], [s20, s21, s40]]) / Det;
         const a = det3x3([[s00, s10, s01], [s10, s20, s11], [s20, s30, s21]]) / Det;
 
+        if (![a, b, c].every(Number.isFinite)) return null;
         const preds = validPoints.map(p => a * p.x * p.x + b * p.x + c);
         r2 = calculateR2(preds, validPoints.map(p => p.y));
 
@@ -119,24 +123,27 @@ export const getRegressionParams = (points, type = 'linear') => {
     }
     else if (type === 'exponential') {
         const v = validPoints.filter(p => p.y > 0);
-        if (v.length < 2) return null;
+        if (v.length < 2 || v[0].x === v[v.length - 1].x) return null;
         let sumX = 0, sumY = 0, sumXY = 0, sumX2 = 0;
         const N = v.length;
         v.forEach(p => {
             const lny = Math.log(p.y);
             sumX += p.x; sumY += lny; sumXY += p.x * lny; sumX2 += p.x * p.x;
         });
-        const b = (N * sumXY - sumX * sumY) / (N * sumX2 - sumX * sumX);
+        const denominator = N * sumX2 - sumX * sumX;
+        if (denominator <= 0 || !Number.isFinite(denominator)) return null;
+        const b = (N * sumXY - sumX * sumY) / denominator;
         const a = Math.exp((sumY - b * sumX) / N);
 
-        const preds = validPoints.map(p => a * Math.exp(b * p.x));
-        r2 = calculateR2(preds, validPoints.map(p => p.y));
+        if (![a, b].every(Number.isFinite)) return null;
+        const preds = v.map(p => a * Math.exp(b * p.x));
+        r2 = calculateR2(preds, v.map(p => p.y));
 
         return { type, a, b, r2, equation: `y = ${formatEquationNumber(a)}e^(${formatEquationNumber(b)}x)` };
     }
     else if (type === 'power') {
         const v = validPoints.filter(p => p.x > 0 && p.y > 0);
-        if (v.length < 2) return null;
+        if (v.length < 2 || v[0].x === v[v.length - 1].x) return null;
         let sumlnX = 0, sumlnY = 0, sumlnXlnY = 0, sumlnX2 = 0;
         const N = v.length;
         v.forEach(p => {
@@ -144,28 +151,34 @@ export const getRegressionParams = (points, type = 'linear') => {
             const lny = Math.log(p.y);
             sumlnX += lnx; sumlnY += lny; sumlnXlnY += lnx * lny; sumlnX2 += lnx * lnx;
         });
-        const b = (N * sumlnXlnY - sumlnX * sumlnY) / (N * sumlnX2 - sumlnX * sumlnX);
+        const denominator = N * sumlnX2 - sumlnX * sumlnX;
+        if (denominator <= 0 || !Number.isFinite(denominator)) return null;
+        const b = (N * sumlnXlnY - sumlnX * sumlnY) / denominator;
         const a = Math.exp((sumlnY - b * sumlnX) / N);
 
-        const preds = validPoints.map(p => a * Math.pow(p.x, b));
-        r2 = calculateR2(preds, validPoints.map(p => p.y));
+        if (![a, b].every(Number.isFinite)) return null;
+        const preds = v.map(p => a * Math.pow(p.x, b));
+        r2 = calculateR2(preds, v.map(p => p.y));
 
         return { type, a, b, r2, equation: `y = ${formatEquationNumber(a)}x^${formatEquationNumber(b)}` };
     }
     else if (type === 'logarithmic') {
         const v = validPoints.filter(p => p.x > 0);
-        if (v.length < 2) return null;
+        if (v.length < 2 || v[0].x === v[v.length - 1].x) return null;
         let sumLnX = 0, sumY = 0, sumLnXY = 0, sumLnX2 = 0;
         const N = v.length;
         v.forEach(p => {
             const lnx = Math.log(p.x);
             sumLnX += lnx; sumY += p.y; sumLnXY += lnx * p.y; sumLnX2 += lnx * lnx;
         });
-        const b = (N * sumLnXY - sumLnX * sumY) / (N * sumLnX2 - sumLnX * sumLnX);
+        const denominator = N * sumLnX2 - sumLnX * sumLnX;
+        if (denominator <= 0 || !Number.isFinite(denominator)) return null;
+        const b = (N * sumLnXY - sumLnX * sumY) / denominator;
         const a = (sumY - b * sumLnX) / N;
 
-        const preds = validPoints.map(p => a + b * Math.log(p.x));
-        r2 = calculateR2(preds, validPoints.map(p => p.y));
+        if (![a, b].every(Number.isFinite)) return null;
+        const preds = v.map(p => a + b * Math.log(p.x));
+        r2 = calculateR2(preds, v.map(p => p.y));
 
         return { type, a, b, r2, equation: `y = ${formatEquationNumber(a)} + ${formatEquationNumber(b)}ln(x)` };
     }
@@ -203,7 +216,7 @@ export const generateTrendlineData = (params, xMin, xMax, yMinData, yMaxData) =>
 
 export const calculateStats = (data, xKey, yKey) => {
     if (!data) return { meanX: 0, meanY: 0, stdDevX: 0, stdDevY: 0, n: 0 };
-    const validData = data.filter(d => !isNaN(parseFloat(d[xKey])) && !isNaN(parseFloat(d[yKey])));
+    const validData = data.filter(d => Number.isFinite(parseFloat(d[xKey])) && Number.isFinite(parseFloat(d[yKey])));
     const n = validData.length;
     if (n === 0) return { meanX: 0, meanY: 0, stdDevX: 0, stdDevY: 0, n: 0 };
 
@@ -600,9 +613,14 @@ export function compileMathFunction(expression) {
 export const generateFunctionPoints = (equation, xMin = -10, xMax = 10, resolution = 200) => {
     try {
         const points = [];
+        // Preserve the bounded expression parser and its positional errors.
+        // Strip only an explicit dependent-variable prefix, never an implicit equation.
+        let expression = equation;
+        const explicit = typeof equation === 'string' && equation.match(/^\s*(?:y|f\(x\))\s*=\s*(.+)$/);
+        if (explicit && !/[=]|\by\b/.test(explicit[1])) expression = explicit[1];
+        const fn = compileEquation(expression);
         
         if (xMin === xMax) {
-            const fn = compileEquation(equation);
             const y = fn({ x: xMin });
             if (Number.isFinite(y)) {
                 points.push({ x: xMin, y });
@@ -612,7 +630,6 @@ export const generateFunctionPoints = (equation, xMin = -10, xMax = 10, resoluti
             return points;
         }
 
-        const fn = compileEquation(equation);
         let prevY = null;
         const dx = (xMax - xMin) / resolution;
 

@@ -19,23 +19,19 @@ It features an **AI-powered scanner** that turns images of data tables into edit
 
 ---
 
-## **🤖 Connect to AI Assistants (Claude, ChatGPT, Cursor)**
+## Connect AI assistants
 
-Graphly comes with a built-in **Model Context Protocol (MCP)** server and **OpenAPI Action** specifications, allowing AI models to plot mathematical graphs and 3D surfaces directly.
+The local Node.js MCP server supports live graph sessions: create a graph once, then append or edit individual equations in the same browser tab. See [MCP setup and tools](mcp-server/README.md) and the optional [Codex / Claude Code skill plugin](integrations/graphly/README.md).
 
-### One-Prompt Setup for Any AI Coding Agent
-Simply prompt your AI assistant (Cursor, Antigravity, Claude Code, or Copilot):
-> *"Read https://github.com/Tajwarbot/Graphly/blob/main/AGENTS.md and configure the Graphly MCP server for my environment."*
+Run the updated frontend locally before using the new tools; the hosted website needs this build deployed before it can render live sessions. Client configuration and inline viewer support vary. The existing OpenAPI endpoint and legacy plot tools generate standalone links.
 
-The AI will automatically inspect the repository, register the `plot_function`, `plot_3d_surface`, and `plot_data_table` tools, and configure your local settings.
+## Equation support and current limits
 
-### ChatGPT Web (Custom GPT Action)
-1. Go to **ChatGPT** &rarr; **My GPTs** &rarr; **Create a GPT** &rarr; **Configure** &rarr; **Actions**.
-2. Click **Import from URL** and paste:
-   ```
-   https://graphly.netlify.app/openapi.json
-   ```
-3. Save. ChatGPT can now natively generate live Graphly 2D curves, 3D quadric surfaces, and scatter trendlines.
+Enter full equations such as `x^2/9+y^2/4=1` in 2D or `x^2/9+y^2/4+z^2=1` in 3D. Explicit surfaces such as `z=x^2+y^2` also work. New assistant plots append layers; targeted edits use layer IDs. Draft layers are restored from this browser's local storage.
+
+Implicit surfaces are sampled in a finite domain on a background worker. This is a numerical renderer, not a symbolic solver: very small features, isolated points, and equations without sign changes can be missed. Inequalities and parametric surfaces are not supported by this path. Live MCP state lasts for the server process; export a snapshot to retain all equations and view settings. Browser edits are currently one-way and do not update MCP state.
+
+Run `npm test`, `npm run test:mcp`, `npm run lint`, and `npm run build` to validate changes. MCP tests require loopback networking.
 
 ---
 
@@ -69,7 +65,7 @@ Follow these instructions to run the project locally.
      ```env
      VITE_GEMINI_API_KEY=your_actual_api_key_here
      ```
-   * **Note:** This is only for local convenience. The app now supports entering your key directly in the UI, which is saved securely in your browser's Local Storage.
+   * **Note:** This is only for local convenience. The app now supports entering your key directly in the UI, which is saved in your browser's Local Storage.
 
 4. **Run the development server:**
    ```bash

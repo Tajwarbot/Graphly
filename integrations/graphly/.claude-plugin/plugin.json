@@ -1,0 +1,9 @@
+{
+  "name": "graphly",
+  "version": "1.1.0",
+  "description": "Graphly plotting workflow for local MCP sessions.",
+  "author": {
+    "name": "Tajwarbot"
+  },
+  "repository": "https://github.com/Tajwarbot/Graphly"
+}

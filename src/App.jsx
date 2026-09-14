@@ -18,7 +18,11 @@ import { FunctionGraph } from './components/FunctionGraph';
 import { ThreeDGraph } from './components/ThreeDGraph';
 import { AIChatbox } from './components/AIChatbox';
 import { Logo, LogoIcon } from './components/Logo';
-import { MathBackground } from './components/MathBackground';
+import { HomePage } from './components/HomePage';
+import { makeSurface, makeDataset, appendDataset } from './lib/graphState.js';
+import { compileSurface } from './lib/surfaceEngine.js';
+import { connectGraphSession } from './lib/graphSessionClient.js';
+import { generateImplicitPoints } from './lib/implicitContours.js';
 
 // SECURITY: Import security utilities for rate limiting, validation, and API key handling
 import {
@@ -30,6 +34,21 @@ import {
 
 // --- CONFIGURATION ---
 const LOCAL_STORAGE_KEY = "graphly_local_data";
+function draftKey(key) {
+    if (typeof window === 'undefined') return key;
+    try {
+        const session = JSON.parse(new URLSearchParams(window.location.hash.slice(1)).get('graphlySession'));
+        return session?.graphId ? `${key}:${session.graphId}` : key;
+    } catch { return key; }
+}
+function readWorkspace(key, fallback) {
+    if (typeof window === 'undefined') return fallback;
+    try {
+        const value = JSON.parse(localStorage.getItem(draftKey(key)));
+        if (key.endsWith('3d')) return Array.isArray(value) && value.every(s => typeof s.equation === 'string') ? value : fallback;
+        return value && Array.isArray(value.datasets) && value.globalConfig ? value : fallback;
+    } catch { return fallback; }
+}
 
 // --- MATH & UTILS ---
 
@@ -194,12 +213,8 @@ function FunctionEvaluator({ equation }) {
 export default function App() {
     const [view, setView] = useState('dashboard');
     const [appMode, setAppMode] = useState('data'); // 'data' | 'function'
-    const [functionList, setFunctionList] = useState([
-        { id: 'fn-1', expression: 'sin(x)', color: '#0044FF', visible: true },
-        { id: 'fn-2', expression: 'x^2 / 4', color: '#000000', visible: true }
-    ]);
-    const [viewportBounds, setViewportBounds] = useState({ xMin: -10, xMax: 10, yMin: -10, yMax: 10 });
-    const [currentGraph, setCurrentGraph] = useState(null);
+    const setViewportBounds = bounds => setZoomDomain({ x: [bounds.xMin, bounds.xMax], y: [bounds.yMin, bounds.yMax] });
+    const [currentGraph, setCurrentGraph] = useState(() => readWorkspace('graphly_draft_2d', null));
     const [isImporting, setIsImporting] = useState(false);
     const [showCSVModal, setShowCSVModal] = useState(false);
     const [csvText, setCsvText] = useState("");
@@ -232,7 +247,6 @@ export default function App() {
     const [selectedData, setSelectedData] = useState(null);
 
     // Cursor position for interactive background
-    const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
     const [cursorCoords, setCursorCoords] = useState(null);
     const [quickFunctionExpr, setQuickFunctionExpr] = useState('');
 
@@ -250,8 +264,12 @@ export default function App() {
         loadGraphs();
     }, []);
 
+    const didHydrateUrl = useRef(false);
+
     // Hydrate state from shareable URL (?state=... or ?mode=...&fn=...)
     useEffect(() => {
+        if (didHydrateUrl.current) return;
+        didHydrateUrl.current = true;
         try {
             const search = window.location.search;
             if (!search) return;
@@ -269,6 +287,20 @@ export default function App() {
                 }
                 const parsed = JSON.parse(jsonStr);
 
+                if (Array.isArray(parsed.expressions)) {
+                    if (parsed.expressions.length > 100 || parsed.expressions.some(item => typeof item.equation !== 'string')) throw new Error('Invalid graph snapshot');
+                    if (parsed.mode === '3d') {
+                        setThreeDSurfaces(parsed.expressions.map((item,i) => ({...makeSurface(item.equation,i),...item})));
+                        setThreeDView(parsed.view || {});
+                        setAppMode('3d');
+                    } else {
+                        setCurrentGraph({...appendDataset(null,makeDataset({equation:'x'})), title:parsed.title || 'Shared graph', datasets:parsed.expressions.map((item,i) => ({...makeDataset({equation:item.equation}),...item,name:item.equation,color:item.color || THEMES[i % THEMES.length].color}))});
+                        if (parsed.view?.bounds) setViewportBounds(parsed.view.bounds);
+                        setAppMode('2d');
+                    }
+                    setView('editor');
+                    return;
+                }
                 if (parsed.mode === '3d') {
                     if (parsed.expression) {
                         setThreeDEquation(parsed.expression);
@@ -368,117 +400,6 @@ export default function App() {
         };
     }, [view, currentGraph]);
 
-    const printGraph = () => {
-        const svgElement = document.querySelector('.recharts-surface');
-        if (!svgElement) {
-            alert("Could not find graph to download.");
-            return;
-        }
-
-        // Serialize SVG
-        const serializer = new XMLSerializer();
-        const svgString = serializer.serializeToString(svgElement);
-        const svgBlob = new Blob([svgString], { type: "image/svg+xml;charset=utf-8" });
-        const url = URL.createObjectURL(svgBlob);
-
-        const canvas = document.createElement("canvas");
-        const ctx = canvas.getContext("2d");
-        const img = new Image();
-
-        // High res for print
-        img.onload = () => {
-            const padding = 40;
-            const titleHeight = 80;
-            const width = img.width + (padding * 2);
-            const height = img.height + titleHeight + padding;
-
-            canvas.width = width;
-            canvas.height = height;
-
-            ctx.fillStyle = "white";
-            ctx.fillRect(0, 0, width, height);
-
-            // Title
-            ctx.font = "bold 36px sans-serif";
-            ctx.fillStyle = "#334155";
-            ctx.textAlign = "center";
-            ctx.textBaseline = "middle";
-            ctx.fillText(currentGraph.title || "Untitled Graph", width / 2, (titleHeight / 2) + 20);
-
-            // Graph
-            ctx.drawImage(img, padding, titleHeight);
-
-            const pngUrl = canvas.toDataURL("image/png");
-
-            // --- PRINTING VIA IFRAME ---
-            // This isolates the print content from the main app UI
-            const printFrame = document.createElement('iframe');
-            printFrame.style.position = 'fixed';
-            printFrame.style.right = '0';
-            printFrame.style.bottom = '0';
-            printFrame.style.width = '0';
-            printFrame.style.height = '0';
-            printFrame.style.border = '0';
-            document.body.appendChild(printFrame);
-
-            // Detect orientation based on screen aspect ratio
-            const isLandscape = window.innerWidth > window.innerHeight;
-            const pageSize = isLandscape ? 'landscape' : 'portrait';
-            // A4 dimensions in mm
-            const a4Width = isLandscape ? 297 : 210;
-            const a4Height = isLandscape ? 210 : 297;
-
-            const frameDoc = printFrame.contentWindow.document;
-            frameDoc.open();
-            frameDoc.write(`
-            <html>
-            <head>
-                <style>
-                    @page { 
-                        size: A4 ${pageSize}; 
-                        margin: 10mm; 
-                    }
-                    body { 
-                        margin: 0; 
-                        padding: 0; 
-                        display: flex; 
-                        justify-content: center; 
-                        align-items: center; 
-                        height: 100vh;
-                        width: 100vw;
-                        overflow: hidden;
-                        background: white;
-                    }
-                    img {
-                        max-width: calc(${a4Width}mm - 20mm);
-                        max-height: calc(${a4Height}mm - 20mm);
-                        object-fit: contain;
-                    }
-                </style>
-            </head>
-            <body>
-                <img src="${pngUrl}" />
-            </body>
-            </html>
-        `);
-            frameDoc.close();
-
-            // Wait for image to load in iframe then print
-            printFrame.onload = () => {
-                printFrame.contentWindow.focus();
-                printFrame.contentWindow.print();
-
-                // Cleanup
-                setTimeout(() => {
-                    document.body.removeChild(printFrame);
-                    URL.revokeObjectURL(url);
-                }, 1000);
-            };
-        };
-
-        img.src = url;
-    };
-
     const exportCSV = () => {
         if (!currentGraph || !currentGraph.datasets.length) return;
         let csvContent = "data:text/csv;charset=utf-8,";
@@ -536,7 +457,7 @@ export default function App() {
     };
 
     const createFunctionGraph = (expression = 'sin(x) * x') => {
-        const cleanExpr = expression.replace(/^(y\s*=\s*|f\(x\)\s*=\s*)/i, '').trim();
+        const cleanExpr = expression.trim();
         const newDs = {
             id: `ds-${Date.now()}`,
             name: `f(x) = ${cleanExpr}`,
@@ -991,7 +912,11 @@ export default function App() {
                 // This gives the "Desmos" feel of infinite scrolling
                 const range = currentDomain.x[1] - currentDomain.x[0];
                 const buffer = range * 0.5; // Render a bit outside view
-                points = generateFunctionPoints(ds.equation, currentDomain.x[0] - buffer, currentDomain.x[1] + buffer, 400);
+                try {
+                    points = compileMathFunction(ds.equation)?.type === 'implicit'
+                        ? generateImplicitPoints(ds.equation, {xMin:currentDomain.x[0],xMax:currentDomain.x[1],yMin:currentDomain.y[0],yMax:currentDomain.y[1]})
+                        : generateFunctionPoints(ds.equation, currentDomain.x[0] - buffer, currentDomain.x[1] + buffer, 400);
+                } catch { points = []; }
             } else {
                 // Standard Data Dataset
                 points = ds.data.map(d => ({
@@ -1091,7 +1016,7 @@ export default function App() {
 
         try {
             e.currentTarget.setPointerCapture(e.pointerId);
-        } catch (err) {
+        } catch {
             // ignore if capture fails
         }
 
@@ -1170,7 +1095,7 @@ export default function App() {
         activePointers.current.delete(e.pointerId);
         try {
             e.currentTarget.releasePointerCapture(e.pointerId);
-        } catch (err) {
+        } catch {
             // ignore
         }
 
@@ -1267,34 +1192,40 @@ export default function App() {
     };
 
     // --- AI CHAT TOOL HANDLERS ---
-    const [threeDEquation, setThreeDEquation] = useState('sin(x) * cos(y)');
+    const [threeDSurfaces, setThreeDSurfaces] = useState(() => readWorkspace('graphly_draft_3d', []));
+    const [liveStatus, setLiveStatus] = useState('');
+    const [threeDView, setThreeDView] = useState({});
+
+    useEffect(() => { try { localStorage.setItem(draftKey('graphly_draft_2d'), JSON.stringify(currentGraph)); } catch { /* Workspace remains available in memory. */ } }, [currentGraph]);
+    useEffect(() => { try { localStorage.setItem(draftKey('graphly_draft_3d'), JSON.stringify(threeDSurfaces)); } catch { /* Workspace remains available in memory. */ } }, [threeDSurfaces]);
+
+    useEffect(() => connectGraphSession({
+        onGraph: graph => {
+            setLiveStatus(`Live graph · revision ${graph.revision}`);
+            setAppMode(graph.dimension);
+            setView('editor');
+            if (graph.dimension === '3d') {
+                setThreeDSurfaces(previous => [...previous.filter(s => !s.sessionGraphId), ...graph.expressions.map((item, i) => ({ ...makeSurface(item.equation, i), ...item, name: item.equation, sessionGraphId: graph.id }))]);
+                setThreeDView(graph.view || {});
+            } else {
+                setCurrentGraph(previous => {
+                    const base = previous || appendDataset(null, makeDataset({equation:'x'}));
+                    return { ...base, title: graph.title, datasets: [...(previous?.datasets || []).filter(d => !d.sessionGraphId), ...graph.expressions.map((item, i) => ({ ...makeDataset({equation:item.equation}), ...item, name:item.equation, color:item.color || THEMES[i % THEMES.length].color, sessionGraphId:graph.id }))] };
+                });
+                if (graph.view?.bounds) setZoomDomain({x:[graph.view.bounds.xMin,graph.view.bounds.xMax],y:[graph.view.bounds.yMin,graph.view.bounds.yMax]});
+            }
+        },
+        onError: error => setLiveStatus(error.message),
+    }), []);
+    const setThreeDEquation = expression => setThreeDSurfaces([makeSurface(expression)]);
 
     const handleAIPlotFunction = (expression) => {
         setAppMode('2d');
         setView('editor');
-        const cleanExpr = (expression || 'sin(x)').replace(/^(y\s*=\s*|f\(x\)\s*=\s*)/i, '').trim();
-        const newDs = {
-            id: `ds-${Date.now()}`,
-            name: cleanExpr.includes('=') ? cleanExpr : `f(x) = ${cleanExpr}`,
-            data: [],
-            equation: cleanExpr,
-            visible: true,
-            color: THEMES[(currentGraph?.datasets?.length || 0) % THEMES.length].color,
-            config: {
-                type: 'function',
-                xKey: 'x',
-                yKey: 'y',
-                showTrendline: false,
-                trendlineType: 'linear',
-                trendlineColor: '#ef4444'
-            }
-        };
-        if (currentGraph) {
-            setCurrentGraph(prev => ({ ...prev, datasets: [...prev.datasets, newDs] }));
-            setExpandedDatasetId(newDs.id);
-        } else {
-            createFunctionGraph(cleanExpr);
-        }
+        const cleanExpr = (expression || 'sin(x)').trim();
+        const newDs = makeDataset({ equation: cleanExpr, name: cleanExpr.includes('=') ? cleanExpr : `f(x) = ${cleanExpr}` });
+        setCurrentGraph(prev => appendDataset(prev, newDs));
+        setExpandedDatasetId(newDs.id);
     };
 
     const handleAIPlotImplicit = (expression) => {
@@ -1304,42 +1235,44 @@ export default function App() {
     const handleAILoadDataTable = (name, rows) => {
         setAppMode('2d');
         setView('editor');
-        const newDataset = {
-            id: `ds-${Date.now()}`,
-            name: name || "AI Data",
-            data: rows,
-            visible: true,
-            color: THEMES[0].color,
-            config: { type: 'scatter', xKey: 'x', yKey: 'y', showTrendline: true, trendlineType: 'linear', trendlineColor: '#ef4444' }
-        };
-        if (currentGraph) {
-            setCurrentGraph(prev => ({ ...prev, datasets: [...prev.datasets, newDataset] }));
-        } else {
-            setCurrentGraph({
-                title: name || "AI Data Plot",
-                datasets: [newDataset],
-                globalConfig: { showGrid: true, enableZoom: true, xAxisLabel: "X", yAxisLabel: "Y", aspectRatio: "auto", showLabels: false },
-                annotations: [],
-                createdAt: new Date().toISOString()
-            });
-        }
+        if (!Array.isArray(rows) || !rows.length || rows.some(row => !Number.isFinite(row.x) || !Number.isFinite(row.y))) throw new Error('Provide a nonempty table with numeric x and y values.');
+        const newDataset = makeDataset({ name: name || 'AI Data', rows });
+        setCurrentGraph(prev => appendDataset(prev, newDataset));
+        setExpandedDatasetId(newDataset.id);
     };
 
     const handleAISwitchTo3D = (expression) => {
         if (expression && typeof expression === 'string') {
-            setThreeDEquation(expression);
+            compileSurface(expression);
+            setThreeDSurfaces(prev => [...prev, makeSurface(expression, prev.length)]);
         }
         setAppMode('3d');
         setView('editor');
     };
 
+    const handleAIUpdateExpression = (layerId, expression) => {
+        const surface = threeDSurfaces.find(s => s.id === layerId);
+        if (surface) {
+            compileSurface(expression);
+            setThreeDSurfaces(previous => previous.map(s => s.id === layerId ? {...s,equation:expression} : s));
+            setAppMode('3d'); setView('editor'); return;
+        }
+        const dataset = currentGraph?.datasets.find(d => d.id === layerId && d.config.type === 'function');
+        if (!dataset) throw new Error('No expression with that layer ID exists.');
+        if (!compileMathFunction(expression) || /\bz\b/.test(expression)) throw new Error('Enter a valid 2D equation.');
+        setCurrentGraph(previous => ({...previous,datasets:previous.datasets.map(d => d.id === layerId ? {...d,equation:expression,name:expression} : d)}));
+        setAppMode('2d'); setView('editor');
+    };
+
     const handleAISetViewportBounds = (bounds) => {
+        if (![bounds.xMin,bounds.xMax,bounds.yMin,bounds.yMax].every(Number.isFinite) || bounds.xMin >= bounds.xMax || bounds.yMin >= bounds.yMax) throw new Error('Provide increasing finite viewport bounds.');
         setViewportBounds(bounds);
     };
 
     return (
         <div className="min-h-screen bg-[#F8FAFC] font-sans text-slate-800 selection:bg-indigo-100 selection:text-indigo-900 overflow-hidden">
 
+            {liveStatus && <div role="status" className="fixed top-16 left-1/2 -translate-x-1/2 z-50 max-w-md rounded-lg border border-blue-100 bg-white px-3 py-2 text-xs text-blue-700 shadow-sm">{liveStatus}</div>}
             {/* PRINT STYLES - ROBUST */}
             <style>{`
         @media print {
@@ -1369,9 +1302,9 @@ export default function App() {
 
             <nav className="sticky top-0 z-50 h-14 bg-white border-b border-neutral-200 flex items-center justify-between px-4 md:px-6">
                 <div className="flex items-center gap-3 sm:gap-4">
-                    <div className="cursor-pointer" onClick={() => setView('dashboard')}>
+                    <button type="button" aria-label="Graphly home" className="cursor-pointer rounded-md focus-visible:outline-blue-600" onClick={() => setView('dashboard')}>
                         <Logo size={28} />
-                    </div>
+                    </button>
 
                     {/* Mode Switcher: 2D Plotter vs 3D Surface */}
                     <div className="flex bg-neutral-100 p-0.5 rounded-lg border border-neutral-200">
@@ -1509,91 +1442,14 @@ export default function App() {
             </nav>
 
             {view === 'dashboard' && (
-                <main className="relative min-h-[calc(100vh-56px)] flex flex-col items-center justify-center px-4 py-12 overflow-hidden bg-white">
-                    {/* Ultra-lightweight animated harmonic math wave background */}
-                    <MathBackground />
-
-                    {/* Centered, straightforward, elegant Hero */}
-                    <div className="relative z-10 max-w-xl w-full text-center space-y-6">
-                        <div className="flex justify-center">
-                            <div className="p-3 bg-white/90 backdrop-blur-xs border border-neutral-300 rounded-2xl shadow-sm inline-flex items-center gap-3">
-                                <LogoIcon size={34} />
-                                <span className="font-bold text-2xl text-neutral-900 tracking-tight font-sans">
-                                    Graphly
-                                </span>
-                            </div>
-                        </div>
-
-                        <div className="space-y-2">
-                            <h1 className="text-2xl sm:text-4xl font-bold text-neutral-900 tracking-tight">
-                                Precision Coordinate Plotter
-                            </h1>
-                            <p className="text-sm sm:text-base text-neutral-600 max-w-md mx-auto leading-relaxed">
-                                2D mathematical curves, experimental data regression, and interactive 3D multi-surface visualization.
-                            </p>
-                        </div>
-
-                        {/* Three Primary Actions: 2D Plotter, 3D Surface, Scan Data */}
-                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2">
-                            <button
-                                onClick={() => { setAppMode('2d'); createBlankGraph(); }}
-                                className="p-4 bg-neutral-900 text-white rounded-xl border border-neutral-900 hover:bg-neutral-800 transition-all shadow-sm flex flex-col items-center gap-2 group cursor-pointer"
-                            >
-                                <Plus size={22} className="text-blue-400 group-hover:scale-110 transition-transform" />
-                                <span className="text-xs font-bold uppercase tracking-wider">2D Plotter</span>
-                                <span className="text-[11px] text-neutral-400 font-mono">Data & Equations</span>
-                            </button>
-
-                            <button
-                                onClick={() => { setAppMode('3d'); setView('editor'); }}
-                                className="p-4 bg-white/95 backdrop-blur-xs text-neutral-900 rounded-xl border border-neutral-300 hover:border-neutral-900 hover:bg-neutral-50 transition-all shadow-xs flex flex-col items-center gap-2 group cursor-pointer"
-                            >
-                                <Box size={22} className="text-purple-600 group-hover:scale-110 transition-transform" />
-                                <span className="text-xs font-bold uppercase tracking-wider">3D Surface</span>
-                                <span className="text-[11px] text-neutral-500 font-mono">Multi-Mesh z = f(x,y)</span>
-                            </button>
-
-                            <button
-                                onClick={() => { setAppMode('2d'); setIsImporting(false); setView('scan'); }}
-                                className="p-4 bg-white/95 backdrop-blur-xs text-neutral-900 rounded-xl border border-neutral-300 hover:border-neutral-900 hover:bg-neutral-50 transition-all shadow-xs flex flex-col items-center gap-2 group cursor-pointer"
-                            >
-                                <Camera size={22} className="text-emerald-600 group-hover:scale-110 transition-transform" />
-                                <span className="text-xs font-bold uppercase tracking-wider">Scan & CSV</span>
-                                <span className="text-[11px] text-neutral-500 font-mono">AI OCR Import</span>
-                            </button>
-                        </div>
-
-                        {/* Saved Projects Section */}
-                        {savedGraphs.length > 0 && (
-                            <div className="pt-8 text-left border-t border-neutral-300 w-full">
-                                <div className="flex items-center justify-between mb-3">
-                                    <span className="text-xs font-bold font-mono uppercase text-neutral-600">Saved Projects ({savedGraphs.length})</span>
-                                </div>
-                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 max-h-56 overflow-y-auto pr-1">
-                                    {savedGraphs.map(g => (
-                                        <div 
-                                            key={g.id}
-                                            onClick={() => { setAppMode('2d'); setCurrentGraph(g); setView('editor'); }}
-                                            className="p-3 bg-white/95 backdrop-blur-xs border border-neutral-300 rounded-lg hover:border-neutral-900 transition-all cursor-pointer shadow-2xs flex items-center justify-between group"
-                                        >
-                                            <div className="truncate mr-2">
-                                                <div className="font-semibold text-xs text-neutral-900 truncate">{g.title || 'Untitled Graph'}</div>
-                                                <div className="text-[10px] font-mono text-neutral-500">{g.datasets?.length || 1} dataset(s)</div>
-                                            </div>
-                                            <button
-                                                onClick={(e) => deleteGraph(e, g.id)}
-                                                className="opacity-0 group-hover:opacity-100 p-1 text-neutral-400 hover:text-red-600 transition-opacity cursor-pointer"
-                                                title="Delete graph"
-                                            >
-                                                <Trash2 size={13} />
-                                            </button>
-                                        </div>
-                                    ))}
-                                </div>
-                            </div>
-                        )}
-                    </div>
-                </main>
+                <HomePage
+                    onCreate2D={() => { setAppMode('2d'); createBlankGraph(); }}
+                    onCreate3D={() => { setAppMode('3d'); setView('editor'); }}
+                    onImport={() => { setAppMode('2d'); setIsImporting(false); setView('scan'); }}
+                    savedGraphs={savedGraphs}
+                    onOpenGraph={g => { setAppMode('2d'); setCurrentGraph(g); setView('editor'); }}
+                    onDeleteGraph={deleteGraph}
+                />
             )}
 
             {view === 'scan' && (
@@ -1714,7 +1570,7 @@ export default function App() {
 
             {view === 'editor' && (
                 appMode === '3d' ? (
-                    <ThreeDGraph initialEquation={threeDEquation} />
+                    <ThreeDGraph surfaces={threeDSurfaces} onSurfacesChange={setThreeDSurfaces} view={threeDView} onViewChange={setThreeDView} />
                 ) : currentGraph ? (
                 <div className="relative flex h-[calc(100vh-56px)] overflow-hidden bg-neutral-50">
                     <div className="flex-1 relative bg-neutral-50 flex flex-col overflow-hidden border-r border-neutral-200">
@@ -1912,7 +1768,7 @@ export default function App() {
                                                         dot={false}
                                                         connectNulls={false}
                                                         isAnimationActive={false}
-                                                        type="monotone"
+                                                        type="linear"
                                                         activeDot={{ r: 5, stroke: '#FFFFFF', strokeWidth: 2, onClick: (e, p) => handlePointClick(p, e, ds) }}
                                                         onClick={(e, p) => handlePointClick(p, e, ds, 'function')}
                                                     />
@@ -2423,7 +2279,7 @@ export default function App() {
                                                         <div className="space-y-3.5">
                                                             <div>
                                                                 <div className="flex items-center justify-between mb-1">
-                                                                    <label className="text-xs font-medium text-neutral-700">Equation: f(x) =</label>
+                                                                    <label className="text-xs font-medium text-neutral-700">Equation</label>
                                                                     {ds.points?.error ? (
                                                                         <span className="text-[10px] font-mono text-red-600 bg-red-50 border border-red-200 px-1.5 py-0.5 rounded shadow-2xs">Syntax Error</span>
                                                                     ) : (
@@ -2437,7 +2293,7 @@ export default function App() {
                                                                         const eq = e.target.value;
                                                                         updateDataset(ds.id, {
                                                                             equation: eq,
-                                                                            name: eq ? `f(x) = ${eq}` : 'f(x)'
+                                                                            name: eq ? (eq.includes('=') ? eq : `f(x) = ${eq}`) : 'Equation'
                                                                         });
                                                                     }}
                                                                     onClick={e => e.stopPropagation()}
@@ -2475,11 +2331,13 @@ export default function App() {
                                                                 </div>
                                                             </div>
 
-                                                            {/* Live Function Evaluator */}
-                                                            <div>
-                                                                <div className="text-[10px] font-semibold text-neutral-500 uppercase tracking-wider mb-1.5">Function Evaluation</div>
-                                                                <FunctionEvaluator equation={ds.equation} />
-                                                            </div>
+                                                            {/* A multivalued implicit curve has no single f(x). */}
+                                                            {compileMathFunction(ds.equation)?.type === 'explicit' && (
+                                                                <div>
+                                                                    <div className="text-[10px] font-semibold text-neutral-500 uppercase tracking-wider mb-1.5">Function Evaluation</div>
+                                                                    <FunctionEvaluator equation={ds.equation} />
+                                                                </div>
+                                                            )}
 
                                                             {/* High-contrast Color Swatches */}
                                                             <div>
@@ -2641,6 +2499,8 @@ export default function App() {
             />
             {/* AI Chatbox with real application tools */}
             <AIChatbox
+                graphContext={{ dimension: appMode === '3d' ? '3d' : '2d', layers: appMode === '3d' ? threeDSurfaces.map(({id,name,equation,visible}) => ({id,name,equation,visible,kind:'surface'})) : (currentGraph?.datasets || []).map(({id,name,equation,visible,config}) => ({id,name,equation,visible,kind:config.type})) }}
+                onUpdateExpression={handleAIUpdateExpression}
                 onPlotFunction={handleAIPlotFunction}
                 onPlotImplicit={handleAIPlotImplicit}
                 onLoadDataTable={handleAILoadDataTable}

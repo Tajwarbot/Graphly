@@ -1,0 +1,43 @@
+.graphly-home { min-height: calc(100dvh - 56px); padding: clamp(36px, 7vw, 88px) 24px 64px; background: #fafafa; }
+.graphly-home-content { max-width: 1000px; margin: 0 auto; }
+.graphly-home-intro { max-width: 650px; margin-bottom: 36px; }
+.graphly-home-eyebrow { color: #2563eb; font-size: 13px; font-weight: 600; margin: 0 0 16px; }
+.graphly-home-intro h1 { color: #18181b; font-size: clamp(32px, 4.7vw, 48px); font-weight: 600; line-height: 1.14; letter-spacing: -.045em; margin: 0 0 20px; }
+.graphly-home-intro h1 span { color: #71717a; }
+.graphly-home-intro > p:last-child { max-width: 560px; color: #52525b; font-size: 15px; line-height: 1.8; margin: 0; }
+.graphly-home-starters { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+.graphly-home-starter { display: flex; flex-direction: column; align-items: flex-start; background: #fff; border: 1px solid #e4e4e7; border-radius: 16px; padding: 24px; text-align: left; cursor: pointer; transition: border-color .15s, box-shadow .15s; }
+.graphly-home-starter:hover { border-color: #93b4f8; box-shadow: 0 4px 16px #18181b06; }
+.graphly-home-icon { display: inline-flex; color: #2563eb; padding: 11px; background: #eff6ff; border-radius: 12px; margin-bottom: 20px; }
+.graphly-home-starter h2 { color: #18181b; font-size: 17px; font-weight: 600; margin: 0 0 8px; }
+.graphly-home-starter p { color: #71717a; font-size: 13px; line-height: 1.7; margin: 0 0 24px; }
+.graphly-home-action { margin-top: auto; width: 100%; display: flex; align-items: center; justify-content: space-between; color: #2563eb; font-size: 13px; font-weight: 600; gap: 12px; }
+.graphly-home-projects { margin-top: 44px; }
+.graphly-home-section-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
+.graphly-home-section-heading h2 { font-size: 15px; font-weight: 600; color: #27272a; margin: 0; }
+.graphly-home-section-heading h2 span { margin-left: 7px; font-size: 12px; font-weight: 500; background: #eeeef0; padding: 2px 7px; border-radius: 6px; color: #71717a; }
+.graphly-home-section-heading p { font-size: 12px; color: #71717a; margin: 0; }
+.graphly-home-project-list { list-style: none; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; padding: 0; margin: 0; }
+.graphly-home-project { display: flex; min-width: 0; align-items: center; background: #fff; border: 1px solid #e4e4e7; border-radius: 12px; padding: 4px; }
+.graphly-home-open { display: flex; align-items: center; flex: 1; min-width: 0; gap: 14px; padding: 14px; border-radius: 8px; text-align: left; cursor: pointer; color: #71717a; }
+.graphly-home-open:hover { background: #fafafa; }
+.graphly-home-open > svg { flex-shrink: 0; }
+.graphly-home-open > span { min-width: 0; }
+.graphly-home-open strong { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 13px; font-weight: 500; color: #27272a; }
+.graphly-home-open small { display: block; font-size: 11px; margin-top: 4px; }
+.graphly-home-delete { display: inline-flex; flex-shrink: 0; align-items: center; justify-content: center; width: 44px; height: 44px; color: #71717a; border-radius: 8px; cursor: pointer; }
+.graphly-home-delete:hover { color: #dc2626; background: #fef2f2; }
+.graphly-home button:focus-visible { outline: 3px solid #2563eb; outline-offset: 3px; }
+.graphly-home-empty { display: flex; gap: 16px; align-items: center; padding: 26px; color: #a1a1aa; border: 1px dashed #d4d4d8; border-radius: 12px; }
+.graphly-home-empty > svg { flex-shrink: 0; }
+.graphly-home-empty h3 { font-size: 13px; font-weight: 500; color: #52525b; margin: 0 0 5px; }
+.graphly-home-empty p { font-size: 12px; color: #71717a; margin: 0; line-height: 1.6; }
+@media (max-width: 640px) {
+  .graphly-home { padding: 32px 18px 40px; }
+  .graphly-home-starters, .graphly-home-project-list { grid-template-columns: 1fr; }
+  .graphly-home-starter { padding: 20px; }
+  .graphly-home-icon { margin-bottom: 14px; }
+  .graphly-home-starter p { margin-bottom: 16px; }
+  .graphly-home-section-heading { align-items: flex-start; flex-direction: column; gap: 8px; }
+}
+@media (prefers-reduced-motion: reduce) { .graphly-home-starter { transition: none; } }

@@ -1,11 +1,12 @@
 {
   "name": "graphly-mcp-server",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Model Context Protocol (MCP) server for Graphly plotting tools",
   "main": "index.js",
   "type": "module",
   "scripts": {
-    "start": "node index.js"
+    "start": "node index.js",
+    "test": "node --test session.test.js"
   },
   "dependencies": {}
 }

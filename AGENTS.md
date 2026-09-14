@@ -1,70 +1,61 @@
-# Graphly Agent Instructions & MCP Tool Specification
+# Graphly agent integration
 
-Welcome, AI Assistant! If you have been provided this repository, you have been invited to interface with **Graphly**, a high-performance 2D & 3D mathematical plotter, calculus evaluator, and data visualization suite.
+Graphly plots 2D curves, 3D surfaces, and tabular data. Prefer the local MCP tools for an ongoing graphing conversation; preserve existing layers unless the user asks to edit or remove them.
 
----
+## Start the MCP server
 
-## 1. Quick MCP Server Installation & Launch
+Run `node /absolute/path/to/Graphly/mcp-server/index.js` over stdio with Node.js 20 or later. The MCP package has no dependencies.
 
-Graphly includes a built-in Model Context Protocol (MCP) server ready to execute over `stdio`.
+Set `GRAPHLY_BASE_URL` to the frontend running this revision. During development, run `npm run dev -- --host 127.0.0.1` from the repository and use `http://127.0.0.1:5173` (match the actual port). The default is `https://graphly.netlify.app`; live sessions and implicit surfaces require deploying the updated frontend first.
 
-### Local Execution Command
-```bash
-node mcp-server/index.js
-```
-
-### Automatic Configuration for Claude Desktop, Cursor, and IDEs
-To register Graphly with your client's MCP configuration (`claude_desktop_config.json`, `.cursor/mcp.json`, or `mcp_config.json`):
+Example client configuration:
 
 ```json
 {
   "mcpServers": {
     "graphly": {
       "command": "node",
-      "args": ["<PATH_TO_GRAPHLY_REPOSITORY>/mcp-server/index.js"],
-      "env": {
-        "GRAPHLY_BASE_URL": "https://graphly.netlify.app"
-      }
+      "args": ["/absolute/path/to/Graphly/mcp-server/index.js"],
+      "env": { "GRAPHLY_BASE_URL": "http://127.0.0.1:5173" }
     }
   }
 }
 ```
 
----
+## Live tools and workflow
 
-## 2. Tools Available to the Agent
+- `create_graph`: create a graph with `dimension: "2d"` or `"3d"` and optional `title`. Retain the returned graph ID and open its live URL once.
+- `upsert_expression`: send `graph_id` and `equation`. **Omit `expression_id` to append a new layer.** Reuse an existing ID only when intentionally editing that layer. Optional `visible` and six-digit hex `color` control display.
+- `get_graph`: inspect current server state, including stable expression IDs and revision.
+- `remove_expression`: remove only the specified `expression_id` from `graph_id`.
+- `set_view`: set `bounds` with ordered finite `xMin`, `xMax`, `yMin`, `yMax`, optional `zMin`, `zMax`; or set `camera` with `position` and `target` triples in mathematical x/y/z coordinates.
+- `export_graph`: return a standalone snapshot link containing every expression, title, and view. It contains no live capability token and survives MCP process restarts.
 
-When connected via MCP or when operating Graphly directly, use the following tools:
+Use dimension from the user's context. After discussing 3D surfaces, interpret an ambiguous shape in that context or clarify briefly. A 2D ellipse and a 3D ellipsoid are different objects.
 
-### Tool A: `plot_function`
-Plots an explicit 2D mathematical curve $y = f(x)$.
-- **`expression`** *(string, required)*: The mathematical formula in terms of $x$ (e.g. `'sin(x)'`, `'x^2 - 4'`, `'1/x'`).
-- **`xMin` / `xMax`** *(number, optional)*: Explicit viewport bounds.
+## Equations
 
-### Tool B: `plot_3d_surface`
-Renders an interactive 3D surface $z = f(x, y)$ with orbit controls and coordinate axes.
-- **`expression`** *(string, required)*: Formula in terms of $x$ and $y$ (e.g. `'(x^2 - y^2)/4'` for hyperboloid/saddle, `'(x^2 + y^2)/6'` for paraboloid, `'sin(x)*cos(y)'` for ripple).
+The updated 3D renderer accepts implicit equations directly:
 
-### Tool C: `plot_data_table`
-Plots tabular coordinates with scatter nodes and automatic regression trendlines.
-- **`name`** *(string)*: Name of dataset.
-- **`rows`** *(array of {x, y})*: Numeric data points.
+- Sphere: `x^2+y^2+z^2=9`
+- Ellipsoid: `x^2/9+y^2/4+z^2=1`
+- Vertical cylinder: `x^2+y^2=9` in a 3D graph
+- Paraboloid: `z=x^2+y^2`
+- Saddle (hyperbolic paraboloid): `z=(x^2-y^2)/4`
+- One-sheet hyperboloid: `x^2+y^2-z^2=1`
 
----
+Do not split spheres or ellipsoids into positive and negative square-root surfaces. Use full equations. Numerical extraction has finite resolution; singularities and very small features can require tighter bounds. Do not promise arbitrary equations render perfectly.
 
-## 3. Remote Web Integration (ChatGPT Actions & Claude Web)
+## Legacy tools
 
-If you are operating in a web-only environment (e.g. ChatGPT Actions, Claude Web, or Custom GPT):
+`plot_function` accepts an explicit 2D expression and optional paired `xMin`/`xMax`. `plot_3d_surface` accepts a 3D expression or full implicit equation with the updated viewer. `plot_data_table` accepts optional `name` and `rows: [{x: 1, y: 2}]` with finite numbers. These tools produce one-plot share links; use live tools for incremental multi-expression work.
 
-1. **OpenAPI Schema**: Read and register `https://graphly.netlify.app/openapi.json`.
-2. **AI Plugin Manifest**: `https://graphly.netlify.app/.well-known/ai-plugin.json`.
-3. **Endpoint**: Call `POST https://graphly.netlify.app/api/plot` with:
-   ```json
-   {
-     "mode": "3d",
-     "expression": "(x^2 - y^2) / 4",
-     "name": "Hyperbolic Paraboloid"
-   }
-   ```
-4. Output the returned `url` to the user as a clickable markdown badge:
-   `[Open in Graphly](https://graphly.netlify.app/?state=...)`
+## Verification and session limits
+
+The server reports **accepted**, meaning it stored state; this does not verify rendering. Inspect the viewer before claiming a graph is displayed correctly. Report expression errors honestly. Never claim to have opened a viewer or changed a browser tab without doing so.
+
+Live sessions use a loopback SSE bridge with an Origin check and capability token. They exist only for the MCP process lifetime, on the same computer as the viewer. Browser local-network restrictions may require local viewing. Keep live URLs private. Exported URLs contain graph data readable by anyone with the link.
+
+The bridge currently sends server state to the viewer, not manual viewer edits back to the server. Later tool updates restore session-owned layers while preserving other user layers. Inline MCP Apps support depends on the host and is not implemented by this bridge. This server does not host or publish the frontend.
+
+See `mcp-server/README.md` for setup details. Run `npm test --prefix mcp-server` with loopback networking permitted to verify protocol, session, bridge, and export behavior.

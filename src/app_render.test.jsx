@@ -35,7 +35,8 @@ describe('App rendering', () => {
     });
 });
 
-import { parseIntentLocally, AIChatbox } from './components/AIChatbox.jsx';
+import { AIChatbox } from './components/AIChatbox.jsx';
+import { parseIntentLocally } from './lib/chatIntent.js';
 
 describe('AIChatbox & Natural Language Geometric Parser', () => {
     const createMockExecutor = () => {
@@ -48,13 +49,13 @@ describe('AIChatbox & Natural Language Geometric Parser', () => {
         return executor;
     };
 
-    it('correctly maps "plot a hyperboloid" to 3D hyperbolic paraboloid surface', () => {
+    it('correctly maps "plot a hyperboloid" to complete 3D hyperboloid surface', () => {
         const mockExec = createMockExecutor();
         const result = parseIntentLocally('plot a hyperboloid', mockExec);
         expect(mockExec.calls).toHaveLength(1);
         expect(mockExec.calls[0].name).toBe('switchTo3D');
-        expect(mockExec.calls[0].args.expression).toBe('(x^2 - y^2) / 4');
-        expect(result.text).toContain('Hyperbolic Paraboloid');
+        expect(mockExec.calls[0].args.expression).toBe('x^2 + y^2 - z^2 = 1');
+        expect(result.actions[0].success).toBe(true);
     });
 
     it('correctly maps "plot an ellipsoid" to 3D ellipsoid surface', () => {
@@ -62,13 +63,13 @@ describe('AIChatbox & Natural Language Geometric Parser', () => {
         const result = parseIntentLocally('plot an ellipsoid', mockExec);
         expect(mockExec.calls).toHaveLength(1);
         expect(mockExec.calls[0].name).toBe('switchTo3D');
-        expect(mockExec.calls[0].args.expression).toContain('sqrt(max(0, 1 - (x^2)/16 - (y^2)/9))');
-        expect(result.text).toContain('Ellipsoid');
+        expect(mockExec.calls[0].args.expression).toBe('x^2/16 + y^2/9 + z^2/4 = 1');
+        expect(result.actions[0].success).toBe(true);
     });
 
     it('correctly maps "plot a paraboloid" to 3D elliptic paraboloid', () => {
         const mockExec = createMockExecutor();
-        const result = parseIntentLocally('plot a paraboloid', mockExec);
+        parseIntentLocally('plot a paraboloid', mockExec);
         expect(mockExec.calls).toHaveLength(1);
         expect(mockExec.calls[0].name).toBe('switchTo3D');
         expect(mockExec.calls[0].args.expression).toBe('(x^2 + y^2) / 6');
@@ -76,7 +77,7 @@ describe('AIChatbox & Natural Language Geometric Parser', () => {
 
     it('correctly maps "plot sombrero in 3d" to 3D sombrero surface', () => {
         const mockExec = createMockExecutor();
-        const result = parseIntentLocally('plot sombrero in 3d', mockExec);
+        parseIntentLocally('plot sombrero in 3d', mockExec);
         expect(mockExec.calls).toHaveLength(1);
         expect(mockExec.calls[0].name).toBe('switchTo3D');
         expect(mockExec.calls[0].args.expression).toContain('sin(sqrt(x^2 + y^2))');
@@ -84,7 +85,7 @@ describe('AIChatbox & Natural Language Geometric Parser', () => {
 
     it('correctly maps "plot a circle with radius 4" to implicit circle equation', () => {
         const mockExec = createMockExecutor();
-        const result = parseIntentLocally('plot a circle with radius 4', mockExec);
+        parseIntentLocally('plot a circle with radius 4', mockExec);
         expect(mockExec.calls).toHaveLength(1);
         expect(mockExec.calls[0].name).toBe('plotImplicitEquation');
         expect(mockExec.calls[0].args.expression).toBe('x^2 + y^2 = 16');
@@ -92,7 +93,7 @@ describe('AIChatbox & Natural Language Geometric Parser', () => {
 
     it('correctly parses "plot y = x^2 and zoom out" into plotFunction and setViewportBounds', () => {
         const mockExec = createMockExecutor();
-        const result = parseIntentLocally('plot y = x^2 and zoom out', mockExec);
+        parseIntentLocally('plot y = x^2 and zoom out', mockExec);
         expect(mockExec.calls).toHaveLength(2);
         expect(mockExec.calls[0].name).toBe('plotFunction');
         expect(mockExec.calls[0].args.expression).toBe('x^2');
@@ -103,7 +104,7 @@ describe('AIChatbox & Natural Language Geometric Parser', () => {
         const mockExec = createMockExecutor();
         const result = parseIntentLocally('write me a poem about graphs', mockExec);
         expect(mockExec.calls).toHaveLength(0);
-        expect(result.text).toContain("couldn't identify a valid mathematical expression");
+        expect(result.text).toContain('could not interpret');
     });
 
     it('renders AIChatbox trigger button without crashing', () => {

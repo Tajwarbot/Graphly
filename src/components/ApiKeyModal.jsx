@@ -1,27 +1,21 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { X, Key, Save, ExternalLink, Check, AlertCircle, Eye, EyeOff, Trash2, HelpCircle, ChevronRight, ChevronDown } from 'lucide-react';
 import { getGeminiApiKey, setGeminiApiKey, removeGeminiApiKey } from '../lib/security';
 
 export function ApiKeyModal({ isOpen, onClose, onSave }) {
-    const [apiKey, setApiKey] = useState('');
+    return isOpen ? <ApiKeyForm onClose={onClose} onSave={onSave} /> : null;
+}
+
+function ApiKeyForm({ onClose, onSave }) {
+    const [apiKey, setApiKey] = useState(() => getGeminiApiKey() || '');
+    const [hasSavedKey, setHasSavedKey] = useState(() => Boolean(getGeminiApiKey()));
+    const timer = useRef(null);
     const [showKey, setShowKey] = useState(false);
     const [error, setError] = useState('');
     const [success, setSuccess] = useState('');
     const [showTutorial, setShowTutorial] = useState(false);
 
-    useEffect(() => {
-        if (isOpen) {
-            const localKey = localStorage.getItem('graphly_api_key');
-            if (localKey) {
-                setApiKey(localKey);
-            } else {
-                setApiKey('');
-            }
-            setError('');
-            setSuccess('');
-            setShowTutorial(false);
-        }
-    }, [isOpen]);
+    useEffect(() => () => clearTimeout(timer.current), []);
 
     const handleSave = () => {
         if (!apiKey.trim()) {
@@ -34,11 +28,18 @@ export function ApiKeyModal({ isOpen, onClose, onSave }) {
             return;
         }
 
-        setGeminiApiKey(apiKey.trim());
+        try {
+            setGeminiApiKey(apiKey.trim());
+        } catch {
+            setError('Your browser could not save the key. Check your storage settings and try again.');
+            return;
+        }
+        setHasSavedKey(true);
         setSuccess('API key saved successfully!');
         setError('');
 
-        setTimeout(() => {
+        clearTimeout(timer.current);
+        timer.current = setTimeout(() => {
             onSave();
             onClose();
         }, 800);
@@ -46,28 +47,36 @@ export function ApiKeyModal({ isOpen, onClose, onSave }) {
 
     const handleRemove = () => {
         if (confirm('Are you sure you want to remove your API key? You will need to enter it again to use AI features.')) {
-            removeGeminiApiKey();
+            try {
+                removeGeminiApiKey();
+            } catch {
+                setError('Your browser could not remove the key. Please try again.');
+                return;
+            }
+            setHasSavedKey(false);
             setApiKey('');
             setSuccess('API key removed.');
-            setTimeout(() => {
+            clearTimeout(timer.current);
+            timer.current = setTimeout(() => {
                 setSuccess('');
             }, 1500);
         }
     };
 
-    if (!isOpen) return null;
-
     return (
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/60">
             <div
-                className="bg-white border-2 border-black w-full max-w-lg"
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="api-key-title"
+                className="bg-white border border-neutral-200 rounded-2xl w-full max-w-lg max-h-[90dvh] overflow-y-auto shadow-xl"
                 onClick={e => e.stopPropagation()}
             >
                 {/* Header */}
                 <div className="px-5 py-3 bg-black text-white border-b-2 border-black flex justify-between items-center">
                     <div className="flex items-center gap-2">
                         <Key size={18} className="text-white" />
-                        <h2 className="text-base font-bold tracking-tight">API Key Configuration</h2>
+                        <h2 id="api-key-title" className="text-base font-bold tracking-tight">API Key Configuration</h2>
                     </div>
                     <button
                         onClick={onClose}
@@ -89,11 +98,13 @@ export function ApiKeyModal({ isOpen, onClose, onSave }) {
 
                     {/* Input Field */}
                     <div className="space-y-2">
-                        <label className="text-xs font-bold text-black block">
+                        <label htmlFor="gemini-api-key" className="text-xs font-bold text-black block">
                             Gemini API Key
                         </label>
                         <div className="relative">
                             <input
+                                id="gemini-api-key"
+                                autoComplete="off"
                                 type={showKey ? "text" : "password"}
                                 value={apiKey}
                                 onChange={(e) => {
@@ -168,7 +179,7 @@ export function ApiKeyModal({ isOpen, onClose, onSave }) {
 
                 {/* Footer */}
                 <div className="px-6 py-4 bg-white border-t-2 border-black flex justify-between items-center gap-3">
-                    {apiKey && localStorage.getItem('graphly_api_key') ? (
+                    {apiKey && hasSavedKey ? (
                         <button
                             onClick={handleRemove}
                             className="px-3 py-2 border border-black text-black bg-white hover:bg-black hover:text-white text-xs font-bold transition-none flex items-center gap-1.5"

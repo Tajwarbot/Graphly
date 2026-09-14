@@ -7,6 +7,7 @@
  */
 
 import readline from 'readline';
+import { createSessionStore, startBridge } from './session.js';
 
 const BASE_URL = process.env.GRAPHLY_BASE_URL || "https://graphly.netlify.app";
 
@@ -20,8 +21,28 @@ function getShareableUrl(state) {
     return `${BASE_URL}/?state=${encodeURIComponent(encoded)}`;
 }
 
+const store = createSessionStore();
+let bridgePromise;
+const sessionResult = async graph => {
+    bridgePromise ||= startBridge(store, BASE_URL).catch(error => { bridgePromise = undefined; throw error; });
+    const bridge = await bridgePromise;
+    const url = bridge.url(graph.id);
+    return { content: [{ type: 'text', text: `Graph accepted (revision ${graph.revision}). Open the live viewer: ${url}. Rendering is not verified by the server.` }], structuredContent: { graph, url } };
+};
+const graphId = { type: 'string', description: 'ID returned by create_graph' };
+const expressionId = { type: 'string', description: 'Stable ID; omit to append a new expression, reuse only for an intentional edit' };
+const tool = (name, description, properties, required) => ({ name, description, inputSchema: { type: 'object', properties, required, additionalProperties: false } });
+const SESSION_TOOLS = [
+    tool('create_graph', 'Create a live graph session, retained for the lifetime of this server. Open its URL once, then update by graph_id.', { dimension: { type: 'string', enum: ['2d', '3d'] }, title: { type: 'string' } }, []),
+    tool('upsert_expression', 'Append an equation to a live graph. Reuse expression_id only when editing an existing equation. 3D supports implicit equations such as x^2+y^2+z^2=9.', { graph_id: graphId, expression_id: expressionId, equation: { type: 'string' }, color: { type: 'string', pattern: '^#[0-9a-fA-F]{6}$' }, visible: { type: 'boolean' } }, ['graph_id', 'equation']),
+    tool('remove_expression', 'Remove one expression from a live graph.', { graph_id: graphId, expression_id: expressionId }, ['graph_id', 'expression_id']),
+    tool('export_graph', 'Create a durable share link containing every expression and the view. No local session token is included.', { graph_id: graphId }, ['graph_id']),
+    tool('get_graph', 'Read authoritative graph state. Accepted means stored, not proof of a successful render.', { graph_id: graphId }, ['graph_id']),
+    tool('set_view', 'Update graph bounds or 3D camera. Camera uses mathematical x/y/z coordinates.', { graph_id: graphId, bounds: { type: 'object', properties: Object.fromEntries(['xMin','xMax','yMin','yMax','zMin','zMax'].map(k => [k, { type: 'number' }])), required: ['xMin','xMax','yMin','yMax'], additionalProperties: false }, camera: { type: 'object', properties: Object.fromEntries(['position','target'].map(k => [k, { type: 'array', items: { type: 'number' }, minItems: 3, maxItems: 3 }])), required: ['position','target'], additionalProperties: false } }, ['graph_id'])
+];
+
 // Tool definitions schema
-const TOOLS = [
+const TOOLS = [...SESSION_TOOLS,
     {
         name: "plot_function",
         description: "Generate a shareable Graphly URL to view an explicit 2D mathematical curve y = f(x).",
@@ -66,13 +87,13 @@ const TOOLS = [
     },
     {
         name: "plot_3d_surface",
-        description: "Generate a shareable Graphly URL to view an interactive 3D surface z = f(x, y) with OrbitControls.",
+        description: "Generate a shareable Graphly URL for a 3D explicit surface or implicit equation such as x^2+y^2+z^2=9. Requires the updated viewer.",
         inputSchema: {
             type: "object",
             properties: {
                 expression: {
                     type: "string",
-                    description: "The 3D surface expression in terms of x and y, e.g. 'sin(x) * cos(y)', '(x^2 - y^2)/4'"
+                    description: "An explicit expression or complete implicit equation, e.g. 'sin(x)*cos(y)' or 'x^2/9+y^2/4+z^2=1'"
                 }
             },
             required: ["expression"]
@@ -81,7 +102,22 @@ const TOOLS = [
 ];
 
 // Handle MCP Tool Calls
-function callTool(name, args) {
+async function callTool(name, args) {
+    if (!args || typeof args !== 'object' || Array.isArray(args)) throw new Error('Tool arguments must be an object');
+    if (name === 'create_graph') return sessionResult(store.create(args));
+    if (name === 'upsert_expression') return sessionResult(store.upsert(args));
+    if (name === 'remove_expression') return sessionResult(store.remove(args));
+    if (name === 'export_graph') {
+        const graph = store.get(args.graph_id);
+        const state = { mode: graph.dimension === '2d' ? 'function' : '3d', expressions: graph.expressions, view: graph.view, title: graph.title };
+        const url = getShareableUrl(state);
+        return { content: [{ type: 'text', text: `Graph snapshot: ${url}` }], structuredContent: { state, url } };
+    }
+    if (name === 'get_graph') return sessionResult(store.get(args.graph_id));
+    if (name === 'set_view') return sessionResult(store.setView(args));
+    if (['plot_function', 'plot_3d_surface'].includes(name) && (typeof args.expression !== 'string' || !args.expression.trim() || args.expression.length > 4096)) throw new Error('Provide a nonempty expression (maximum 4096 characters)');
+    if (name === 'plot_data_table' && (!Array.isArray(args.rows) || args.rows.length > 10000 || !args.rows.every(row => row && Number.isFinite(row.x) && Number.isFinite(row.y)))) throw new Error('rows must contain at most 10000 finite numeric x/y points');
+    if (name === 'plot_function' && (args.xMin !== undefined || args.xMax !== undefined) && (!Number.isFinite(args.xMin) || !Number.isFinite(args.xMax) || args.xMin >= args.xMax)) throw new Error('Provide finite xMin < xMax');
     if (name === "plot_function") {
         const state = {
             mode: "function",
@@ -131,7 +167,7 @@ function callTool(name, args) {
             content: [
                 {
                     type: "text",
-                    text: `Graphly 3D Surface Created (z = ${args.expression}): [View 3D Surface in Graphly](${url})\nDirect URL: ${url}`
+                    text: `Graphly 3D Surface Created (${args.expression}): [View 3D Surface in Graphly](${url})\nDirect URL: ${url}`
                 }
             ]
         };
@@ -147,68 +183,25 @@ const rl = readline.createInterface({
     terminal: false
 });
 
-rl.on('line', (line) => {
+let queue = Promise.resolve();
+const send = message => process.stdout.write(JSON.stringify(message) + '\n');
+async function handle(line) {
     if (!line.trim()) return;
-
-    try {
-        const msg = JSON.parse(line);
-        const { id, method, params } = msg;
-
-        // MCP Handshake
-        if (method === 'initialize') {
-            const response = {
-                jsonrpc: "2.0",
-                id,
-                result: {
-                    protocolVersion: "2024-11-05",
-                    capabilities: {
-                        tools: {}
-                    },
-                    serverInfo: {
-                        name: "graphly-mcp-server",
-                        version: "1.0.0"
-                    }
-                }
-            };
-            process.stdout.write(JSON.stringify(response) + '\n');
-            return;
-        }
-
-        // List Tools
-        if (method === 'tools/list') {
-            const response = {
-                jsonrpc: "2.0",
-                id,
-                result: {
-                    tools: TOOLS
-                }
-            };
-            process.stdout.write(JSON.stringify(response) + '\n');
-            return;
-        }
-
-        // Call Tool
-        if (method === 'tools/call') {
-            const { name, arguments: toolArgs } = params;
-            const toolResult = callTool(name, toolArgs || {});
-            const response = {
-                jsonrpc: "2.0",
-                id,
-                result: toolResult
-            };
-            process.stdout.write(JSON.stringify(response) + '\n');
-            return;
-        }
-
-        // Default response for notifications or unhandled methods
-        if (id !== undefined) {
-            process.stdout.write(JSON.stringify({
-                jsonrpc: "2.0",
-                id,
-                error: { code: -32601, message: `Method not found: ${method}` }
-            }) + '\n');
-        }
-    } catch (e) {
-        process.stderr.write(`Error processing line: ${e.message}\n`);
-    }
-});
+    let msg;
+    try { msg = JSON.parse(line); }
+    catch { send({ jsonrpc: '2.0', id: null, error: { code: -32700, message: 'Parse error' } }); return; }
+    if (!msg || msg.jsonrpc !== '2.0' || typeof msg.method !== 'string') { send({ jsonrpc: '2.0', id: msg?.id ?? null, error: { code: -32600, message: 'Invalid request' } }); return; }
+    const { id, method, params } = msg;
+    if (id === undefined) return;
+    let result;
+    if (method === 'initialize') result = { protocolVersion: '2024-11-05', capabilities: { tools: {} }, serverInfo: { name: 'graphly-mcp-server', version: '1.1.0' } };
+    else if (method === 'ping') result = {};
+    else if (method === 'tools/list') result = { tools: TOOLS };
+    else if (method === 'tools/call') {
+        try { result = await callTool(params?.name, params?.arguments || {}); }
+        catch (error) { result = { isError: true, content: [{ type: 'text', text: error.message }] }; }
+    } else { send({ jsonrpc: '2.0', id, error: { code: -32601, message: `Method not found: ${method}` } }); return; }
+    send({ jsonrpc: '2.0', id, result });
+}
+rl.on('line', line => { queue = queue.then(() => handle(line)).catch(error => process.stderr.write(`${error.message}\n`)); });
+rl.on('close', () => { queue.then(async () => { if (bridgePromise) (await bridgePromise).close(); }).catch(() => {}); });

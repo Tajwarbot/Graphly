@@ -3,7 +3,7 @@
  * Endpoint: POST /api/plot or GET /api/plot
  */
 
-export async function handler(event, context) {
+export async function handler(event) {
     const corsHeaders = {
         'Access-Control-Allow-Origin': '*',
         'Access-Control-Allow-Headers': 'Content-Type, Authorization',

@@ -82,7 +82,7 @@ class RateLimiter {
             } else {
                 this._resetState();
             }
-        } catch (e) {
+        } catch {
             // OWASP: Fail secure - if localStorage fails, start fresh
             console.warn('[Security] Rate limiter state load failed, resetting');
             this._resetState();
@@ -109,7 +109,7 @@ class RateLimiter {
                 tokens: this.tokens,
                 lastRefill: this.lastRefill
             }));
-        } catch (e) {
+        } catch {
             // Silent fail - rate limiting still works in-memory
         }
     }
@@ -428,7 +428,7 @@ export function getGeminiApiKey() {
     try {
         const localKey = localStorage.getItem('graphly_api_key');
         if (localKey) return localKey;
-    } catch (e) {
+    } catch {
         console.warn('Failed to access localStorage for API key');
     }
 

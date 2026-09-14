@@ -1,10 +1,15 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
-import { compileMathFunction } from '../lib/mathEngine.js';
+import { mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import { makeSurface } from '../lib/graphState.js';
 import { RotateCcw, Box, Eye, EyeOff, Sliders, Play, Plus, Trash2, Layers, ChevronDown, ChevronRight, Menu, X } from 'lucide-react';
 
 const PRESETS = [
+    { name: 'Sphere', expr: 'x^2 + y^2 + z^2 = 9' },
+    { name: 'Ellipsoid', expr: 'x^2/9 + y^2/4 + z^2 = 1' },
+    { name: 'Cylinder', expr: 'x^2 + y^2 = 4' },
+    { name: 'Torus', expr: '(sqrt(x^2 + y^2) - 3)^2 + z^2 = 1' },
     { name: 'Ripple', expr: 'sin(x) * cos(y)' },
     { name: 'Saddle', expr: '(x^2 - y^2) / 4' },
     { name: 'Sombrero', expr: '2 * sin(sqrt(x^2 + y^2)) / (sqrt(x^2 + y^2) + 0.1)' },
@@ -25,7 +30,7 @@ const SURFACE_COLORS = [
     { name: "Midnight Black", hex: "#18181B" }
 ];
 
-export function ThreeDGraph({ initialEquation }) {
+export function ThreeDGraph({ initialEquation, surfaces: controlledSurfaces, onSurfacesChange, view = {}, onViewChange }) {
     const containerRef = useRef(null);
     const canvasRef = useRef(null);
     const sceneRef = useRef(null);
@@ -34,52 +39,45 @@ export function ThreeDGraph({ initialEquation }) {
     const controlsRef = useRef(null);
     const surfacesGroupRef = useRef(null);
 
-    // Multiple surfaces state
-    const [surfaces, setSurfaces] = useState([
-        {
-            id: 'surf-1',
-            name: 'Surface 1',
-            equation: initialEquation || 'sin(x) * cos(y)',
-            color: '#2563EB',
-            visible: true,
-            opacity: 0.85,
-            wireframeMode: 'both' // 'both' | 'solid' | 'wireframe'
-        }
-    ]);
-
-    useEffect(() => {
-        if (initialEquation) {
-            setSurfaces(prev => {
-                const next = [...prev];
-                if (next.length > 0) {
-                    next[0] = { ...next[0], equation: initialEquation };
-                } else {
-                    next.push({
-                        id: 'surf-1',
-                        name: 'Surface 1',
-                        equation: initialEquation,
-                        color: '#2563EB',
-                        visible: true,
-                        opacity: 0.85,
-                        wireframeMode: 'both'
-                    });
-                }
-                return next;
-            });
-            setExpandedSurfaceId('surf-1');
-        }
-    }, [initialEquation]);
+    const [localSurfaces, setLocalSurfaces] = useState(() => [makeSurface(initialEquation || 'sin(x) * cos(y)')]);
+    const surfaces = controlledSurfaces ?? localSurfaces;
+    const setSurfaces = onSurfacesChange ?? setLocalSurfaces;
+    const lastSurfaceId = useRef(surfaces.at(-1)?.id);
+    const [meshResults, setMeshResults] = useState([]);
+    const [isBuilding, setIsBuilding] = useState(false);
+    const equationsKey = JSON.stringify(surfaces.filter(s => s.visible).map(s => ({ id: s.id, equation: s.equation })));
 
     const [activeTab, setActiveTab] = useState('surfaces'); // 'surfaces' | 'settings'
-    const [expandedSurfaceId, setExpandedSurfaceId] = useState('surf-1');
+    const [expandedSurfaceId, setExpandedSurfaceId] = useState(surfaces[0]?.id);
     const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
     // Global 3D scene parameters
-    const [gridSegments, setGridSegments] = useState(60);
+    const [gridSegments, setGridSegments] = useState(36);
     const [range, setRange] = useState(5);
+    const domainKey = JSON.stringify(view.bounds || range);
     const [heightScale, setHeightScale] = useState(1);
     const [showAxes, setShowAxes] = useState(true);
     const [showGrid, setShowGrid] = useState(true);
+
+    // Cancel obsolete meshes on every edit; compilation and sampling stay off the UI thread.
+    useEffect(() => {
+        const worker = new Worker(new URL('../lib/surface.worker.js', import.meta.url), { type: 'module' });
+        const timer = setTimeout(() => {
+            setIsBuilding(true);
+            worker.postMessage({ surfaces: JSON.parse(equationsKey), range: JSON.parse(domainKey), resolution: gridSegments });
+        }, 140);
+        worker.onmessage = ({ data }) => {
+            setMeshResults(data); setIsBuilding(false);
+            const newest = JSON.parse(equationsKey).at(-1)?.id;
+            if (newest && newest !== lastSurfaceId.current) setExpandedSurfaceId(newest);
+            lastSurfaceId.current = newest;
+        };
+        worker.onerror = () => {
+            setMeshResults(JSON.parse(equationsKey).map(s => ({ id: s.id, error: 'Unable to build this surface. Try a lower mesh density.' })));
+            setIsBuilding(false);
+        };
+        return () => { clearTimeout(timer); worker.terminate(); };
+    }, [equationsKey, domainKey, gridSegments]);
 
     // Build or update all 3D surface meshes in scene
     const updateSurfaces = useCallback(() => {
@@ -100,39 +98,29 @@ export function ThreeDGraph({ initialEquation }) {
             }
         }
 
-        const size = range * 2;
-        const segs = gridSegments;
 
         surfaces.forEach((surf) => {
             if (!surf.visible) return;
 
-            const compiled = compileMathFunction(surf.equation);
-            if (!compiled) return;
-
-            const geometry = new THREE.PlaneGeometry(size, size, segs, segs);
-            geometry.rotateX(-Math.PI / 2);
-
-            const posAttr = geometry.attributes.position;
-            for (let i = 0; i < posAttr.count; i++) {
-                const x = posAttr.getX(i);
-                const y = -posAttr.getZ(i);
-                let zVal = compiled(x, y);
-
-                if (!Number.isFinite(zVal) || isNaN(zVal)) {
-                    zVal = 0;
-                }
-                const clampedZ = Math.max(-size * 2, Math.min(size * 2, zVal * heightScale));
-                posAttr.setY(i, clampedZ);
+            const result = meshResults.find(r => r.id === surf.id);
+            if (!result?.vertices?.length) return;
+            const positions = new Float32Array(result.vertices.length);
+            for (let i = 0; i < positions.length; i += 3) {
+                positions[i] = result.vertices[i];
+                positions[i + 1] = result.vertices[i + 2] * heightScale;
+                positions[i + 2] = -result.vertices[i + 1];
             }
-
-            posAttr.needsUpdate = true;
+            const raw = new THREE.BufferGeometry();
+            raw.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+            const geometry = mergeVertices(raw, 1e-5);
+            raw.dispose();
             geometry.computeVertexNormals();
 
             // Surface Material
             const isTransparent = surf.opacity < 1;
             const material = new THREE.MeshStandardMaterial({
                 color: new THREE.Color(surf.color),
-                flatShading: true,
+                flatShading: surf.wireframeMode === 'both',
                 roughness: 0.5,
                 metalness: 0.1,
                 side: THREE.DoubleSide,
@@ -160,7 +148,7 @@ export function ThreeDGraph({ initialEquation }) {
                 group.add(wireMesh);
             }
         });
-    }, [surfaces, gridSegments, range, heightScale]);
+    }, [surfaces, meshResults, heightScale]);
 
     // Initialize Three.js Scene
     useEffect(() => {
@@ -305,9 +293,25 @@ export function ThreeDGraph({ initialEquation }) {
             cancelAnimationFrame(animId);
             resizeObserver.disconnect();
             controls.dispose();
+            scene.traverse(object => {
+                object.geometry?.dispose();
+                const materials = Array.isArray(object.material) ? object.material : [object.material];
+                materials.filter(Boolean).forEach(material => { material.map?.dispose(); material.dispose(); });
+            });
             renderer.dispose();
         };
     }, []);
+
+    useEffect(() => {
+        if (!view.camera || !cameraRef.current || !controlsRef.current) return;
+        const validPoint = point => Array.isArray(point) && point.length === 3 && point.every(Number.isFinite);
+        if (!validPoint(view.camera.position) || !validPoint(view.camera.target)) return;
+        const [x,y,z] = view.camera.position;
+        const [tx,ty,tz] = view.camera.target;
+        cameraRef.current.position.set(x,z,-y);
+        controlsRef.current.target.set(tx,tz,-ty);
+        controlsRef.current.update();
+    }, [view.camera]);
 
     // Toggle Grid and Axes visibility
     useEffect(() => {
@@ -327,15 +331,15 @@ export function ThreeDGraph({ initialEquation }) {
     const addSurface = (presetExpr = null) => {
         const nextIndex = surfaces.length;
         const nextColor = SURFACE_COLORS[nextIndex % SURFACE_COLORS.length].hex;
-        const newId = `surf-${Date.now()}`;
+        const newId = crypto.randomUUID();
         const newSurf = {
             id: newId,
             name: `Surface ${nextIndex + 1}`,
             equation: presetExpr || (nextIndex === 1 ? '(x^2 - y^2) / 4' : 'cos(x) * sin(y)'),
             color: nextColor,
             visible: true,
-            opacity: 0.85,
-            wireframeMode: 'both'
+            opacity: 1,
+            wireframeMode: 'solid'
         };
         setSurfaces(prev => [...prev, newSurf]);
         setExpandedSurfaceId(newId);
@@ -383,13 +387,13 @@ export function ThreeDGraph({ initialEquation }) {
                                 <div key={s.id} className="flex items-center gap-2 text-xs">
                                     <div className="w-2.5 h-2.5 rounded-full ring-1 ring-white shrink-0 shadow-2xs" style={{ backgroundColor: s.color }} />
                                     <span className={`font-mono text-[11px] truncate ${s.visible ? 'text-neutral-900 font-semibold' : 'text-neutral-400 line-through'}`}>
-                                        z = {s.equation}
+                                        {s.equation.includes('=') ? s.equation : `z = ${s.equation}`}
                                     </span>
                                 </div>
                             ))}
                         </div>
                         <div className="text-[10px] font-mono text-neutral-500 mt-2 pt-2 border-t border-neutral-200 flex gap-2">
-                            <span>x,y ∈ [{-range}, {range}]</span>
+                            <span>{view.bounds ? 'Custom domain' : `x,y,z ∈ [${-range}, ${range}]`}</span>
                             <span>•</span>
                             <span>{gridSegments}x{gridSegments} mesh</span>
                         </div>
@@ -465,6 +469,7 @@ export function ThreeDGraph({ initialEquation }) {
                             {/* Action Row */}
                             <div className="flex items-center justify-between">
                                 <span className="text-xs font-bold uppercase tracking-wider text-neutral-700">Equations & Layers</span>
+                                <span role="status" className="text-xs text-neutral-500">{isBuilding ? 'Rendering…' : ''}</span>
                                 <button
                                     onClick={() => addSurface()}
                                     className="rounded-md bg-neutral-900 text-white hover:bg-neutral-800 px-2.5 py-1 text-xs font-semibold flex items-center gap-1 transition-colors cursor-pointer shadow-2xs"
@@ -473,9 +478,10 @@ export function ThreeDGraph({ initialEquation }) {
                                 </button>
                             </div>
 
+                            {surfaces.length === 0 && <p className="rounded-lg bg-blue-50 p-3 text-sm text-blue-800">Start with a preset below, or add a surface and enter an equation.</p>}
                             {/* Surface Cards List */}
                             <div className="space-y-3">
-                                {surfaces.map((s, idx) => (
+                                {surfaces.map((s) => (
                                     <div key={s.id} className="border border-neutral-200 rounded-xl bg-white shadow-xs overflow-hidden transition-all">
                                         {/* Card Header */}
                                         <div 
@@ -494,6 +500,7 @@ export function ThreeDGraph({ initialEquation }) {
 
                                             <input
                                                 className="flex-1 bg-transparent text-xs font-semibold text-neutral-900 outline-none border-b border-transparent focus:border-neutral-400 py-0.5"
+                                                aria-label="Surface name"
                                                 value={s.name}
                                                 onClick={(e) => e.stopPropagation()}
                                                 onChange={(e) => updateSurface(s.id, { name: e.target.value })}
@@ -507,15 +514,22 @@ export function ThreeDGraph({ initialEquation }) {
                                             <div className="p-3.5 space-y-3.5 bg-neutral-50/30">
                                                 {/* Equation Input */}
                                                 <div>
-                                                    <label className="text-xs font-medium text-neutral-600 mb-1 block">z = f(x, y)</label>
+                                                    <label className="text-xs font-medium text-neutral-600 mb-1 block">Equation or expression</label>
                                                     <input
                                                         className="w-full p-2 bg-white border border-neutral-200 rounded-md font-mono text-xs text-neutral-900 outline-none focus:border-neutral-900 focus:ring-1 focus:ring-neutral-900"
                                                         value={s.equation}
                                                         onChange={(e) => updateSurface(s.id, { equation: e.target.value })}
-                                                        placeholder="sin(x) * cos(y)"
+                                                        placeholder="x^2 + y^2 + z^2 = 9"
+                                                        aria-label={`${s.name} equation`}
                                                     />
                                                 </div>
 
+                                                {meshResults.find(r => r.id === s.id)?.error && (
+                                                    <p role="alert" className="text-xs text-red-700">{meshResults.find(r => r.id === s.id).error}</p>
+                                                )}
+                                                {meshResults.find(r => r.id === s.id)?.vertices?.length === 0 && (
+                                                    <p role="status" className="text-xs text-amber-700">No surface found. Check the bounds; equations with no sign change, such as z^2 = 0, need to be simplified.</p>
+                                                )}
                                                 {/* Color Picker Swatches */}
                                                 <div>
                                                     <span className="text-xs font-medium text-neutral-700 mb-1.5 block">Surface Color</span>
@@ -539,7 +553,7 @@ export function ThreeDGraph({ initialEquation }) {
                                                     <span className="text-xs font-medium text-neutral-700 mb-1.5 block">Shading & Facets</span>
                                                     <div className="flex bg-neutral-100 p-0.5 rounded-lg border border-neutral-200">
                                                         <button
-                                                            onClick={() => updateSurface(s.id, { wireframeMode: 'both' })}
+                                                            onClick={() => updateSurface(s.id, { wireframeMode: 'solid' })}
                                                             className={`flex-1 py-1 text-[11px] font-semibold rounded-md transition-all cursor-pointer ${
                                                                 s.wireframeMode === 'both' ? 'bg-white text-neutral-900 shadow-2xs' : 'text-neutral-600 hover:text-neutral-900'
                                                             }`}
@@ -583,7 +597,7 @@ export function ThreeDGraph({ initialEquation }) {
                                                 </div>
 
                                                 {/* Delete Button */}
-                                                {surfaces.length > 1 && (
+                                                {surfaces.length > 0 && (
                                                     <div className="pt-2 border-t border-neutral-200 flex justify-end">
                                                         <button
                                                             onClick={(e) => deleteSurface(s.id, e)}
@@ -624,8 +638,8 @@ export function ThreeDGraph({ initialEquation }) {
                             <div className="space-y-4 p-3.5 border border-neutral-200 rounded-xl bg-neutral-50/50">
                                 <div>
                                     <div className="flex justify-between text-xs font-semibold text-neutral-700 mb-1">
-                                        <span>Domain Bounds [±X, ±Y]</span>
-                                        <span className="font-mono text-neutral-900">±{range}</span>
+                                        <span>Domain Bounds [±X, ±Y, ±Z]</span>
+                                        <span className="font-mono text-neutral-900">{view.bounds ? 'Custom' : `±${range}`}</span>
                                     </div>
                                     <input
                                         type="range"
@@ -633,7 +647,7 @@ export function ThreeDGraph({ initialEquation }) {
                                         max="15"
                                         step="1"
                                         value={range}
-                                        onChange={(e) => setRange(parseFloat(e.target.value))}
+                                        onChange={(e) => { setRange(parseFloat(e.target.value)); onViewChange?.({ ...view, bounds: undefined }); }}
                                         className="w-full accent-neutral-900 cursor-pointer"
                                     />
                                 </div>
@@ -645,9 +659,9 @@ export function ThreeDGraph({ initialEquation }) {
                                     </div>
                                     <input
                                         type="range"
-                                        min="20"
-                                        max="100"
-                                        step="10"
+                                        min="16"
+                                        max="64"
+                                        step="4"
                                         value={gridSegments}
                                         onChange={(e) => setGridSegments(parseInt(e.target.value))}
                                         className="w-full accent-neutral-900 cursor-pointer"
