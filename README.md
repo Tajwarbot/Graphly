@@ -1,5 +1,7 @@
 <p align="center"><img src="public/graphly-logo.png" width="88" alt="Graphly logo" /></p>
 <h1 align="center">Graphly</h1>
+<img width="520" height="520" alt="0914_high_quality" src="https://github.com/user-attachments/assets/13428442-0fda-4400-b26f-e344c1815881" />
+
 <p align="center">Equations, data, and interactive 3D graphs—with an assistant that can work alongside you.</p>
 
 Graphly is a React application for plotting mathematical expressions, exploring datasets, and composing multi-layer 3D scenes. Graphs run in your browser; Gemini assistance is optional. A local MCP server lets external assistants create and refine graphs in one live browser tab.
